@@ -1,0 +1,78 @@
+# Files and directories to exclude when deploying to production server
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+frontend/build/
+frontend/.cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Migration scripts (already completed)
+backend/scripts/
+
+# Documentation (keep only main docs)
+*.md
+!README.md
+!FAULT_MANAGEMENT_SYSTEM_DOCUMENTATION.md
+!HOSTING_GUIDE.md
+
+# Postman collections
+*.postman_collection.json
+
+# Windows specific
+*.bat
+start.bat
+
+# Temporary scripts
+*.sh
+!deployment/**/*.sh
+cleanup_for_deployment.sh
+
