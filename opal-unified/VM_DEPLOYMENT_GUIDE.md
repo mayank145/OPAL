@@ -1,12 +1,16 @@
 # Virtual Machine Deployment Guide
 
+This guide covers deploying the FATS (Fault Tracking System) on a Virtual Machine using Apache web server.
+
+> **Note**: For detailed Apache configuration, see `deployment/apache/APACHE_SETUP_GUIDE.md`
+
 ## Prerequisites
 
 - Ubuntu/Debian Linux VM (or similar)
 - Python 3.9+ installed
 - Node.js 16+ and npm installed
 - MariaDB/MySQL installed and running
-- Nginx installed (for production frontend serving)
+- Apache 2.4+ installed (for production frontend serving)
 
 ## Step 1: Transfer Files to VM
 
@@ -163,55 +167,103 @@ sudo systemctl start opal-backend
 sudo systemctl status opal-backend
 ```
 
-## Step 6: Configure Nginx for Frontend
+## Step 6: Configure Apache for Frontend
 
-### 6.1 Create Nginx Configuration
+### 6.1 Install and Enable Apache Modules
 ```bash
-sudo nano /etc/nginx/sites-available/opal-fats
+# Install Apache (if not already installed)
+sudo apt-get update
+sudo apt-get install apache2
+
+# Enable required modules
+sudo a2enmod ssl
+sudo a2enmod proxy
+sudo a2enmod proxy_http
+sudo a2enmod rewrite
+sudo a2enmod headers
+sudo a2enmod expires
+```
+
+### 6.2 Create Apache Configuration
+```bash
+# Copy the provided configuration
+sudo cp /opt/opal-unified/deployment/apache/fats-frontend.conf /etc/apache2/sites-available/opal-fats.conf
+
+# Edit configuration
+sudo nano /etc/apache2/sites-available/opal-fats.conf
+```
+
+Update the following in the configuration file:
+- `ServerName your-domain.com` - Replace with your domain or VM IP
+- `DocumentRoot /path/to/opal-unified/frontend/build` - Replace with `/opt/opal-unified/frontend/build`
+- SSL certificate paths (if using HTTPS)
+
+### 6.3 Enable Site
+```bash
+# Test configuration
+sudo apache2ctl configtest
+
+# Enable site
+sudo a2ensite opal-fats.conf
+
+# Disable default site (optional)
+sudo a2dissite 000-default.conf
+
+# Restart Apache
+sudo systemctl restart apache2
+```
+
+### 6.4 Alternative: Manual Configuration
+
+If you prefer to create the configuration manually:
+
+```bash
+sudo nano /etc/apache2/sites-available/opal-fats.conf
 ```
 
 Add this configuration:
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;  # or vm-ip
-
-    # Serve frontend build files
-    root /opt/opal-unified/frontend/build;
-    index index.html;
-
-    # Frontend routes
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
+```apache
+<VirtualHost *:80>
+    ServerName your-domain.com  # or vm-ip
+    
+    DocumentRoot /opt/opal-unified/frontend/build
+    
+    <Directory /opt/opal-unified/frontend/build>
+        Options -Indexes +FollowSymLinks
+        AllowOverride All
+        Require all granted
+        
+        # React Router - serve index.html for all routes
+        RewriteEngine On
+        RewriteBase /
+        RewriteRule ^index\.html$ - [L]
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule . /index.html [L]
+    </Directory>
+    
     # Proxy API requests to backend
-    location /api/ {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Serve uploaded images
-    location /uploads/ {
-        alias /opt/opal-unified/backend/uploads/;
-        expires 30d;
-        add_header Cache-Control "public, immutable";
-    }
-}
-```
-
-### 6.2 Enable Site
-```bash
-sudo ln -s /etc/nginx/sites-available/opal-fats /etc/nginx/sites-enabled/
-sudo nginx -t  # Test configuration
-sudo systemctl restart nginx
+    ProxyPreserveHost On
+    ProxyRequests Off
+    
+    ProxyPass /api http://127.0.0.1:8000/api
+    ProxyPassReverse /api http://127.0.0.1:8000/api
+    
+    # Proxy /uploads for image serving
+    ProxyPass /uploads http://127.0.0.1:8000/uploads
+    ProxyPassReverse /uploads http://127.0.0.1:8000/uploads
+    
+    # Static file caching
+    <LocationMatch "\.(js|css|png|jpg|jpeg|gif|ico|svg)$">
+        ExpiresActive On
+        ExpiresDefault "access plus 1 year"
+        Header set Cache-Control "public, immutable"
+    </LocationMatch>
+    
+    # Logging
+    ErrorLog ${APACHE_LOG_DIR}/opal-fats-error.log
+    CustomLog ${APACHE_LOG_DIR}/opal-fats-access.log combined
+</VirtualHost>
 ```
 
 ## Step 7: Firewall Configuration
@@ -258,11 +310,36 @@ curl http://localhost/api/v1/fats/2633/images
 
 ### Using Let's Encrypt
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+# Install certbot for Apache
+sudo apt install certbot python3-certbot-apache
+
+# Get certificate
+sudo certbot --apache -d your-domain.com -d www.your-domain.com
+
+# Auto-renewal is configured automatically
+sudo certbot renew --dry-run  # Test renewal
 ```
 
-Update Nginx config to redirect HTTP to HTTPS.
+Certbot will automatically update your Apache configuration to:
+- Enable HTTPS
+- Redirect HTTP to HTTPS
+- Configure SSL certificates
+
+### Manual SSL Configuration
+
+If using your own certificates, update the Apache configuration:
+
+```apache
+<VirtualHost *:443>
+    ServerName your-domain.com
+    
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/your-domain.crt
+    SSLCertificateKeyFile /etc/ssl/private/your-domain.key
+    
+    # ... rest of configuration ...
+</VirtualHost>
+```
 
 ## Troubleshooting
 
@@ -282,14 +359,22 @@ python3 -c "from app.db.session import engine; import asyncio; asyncio.run(engin
 
 ### Frontend Not Loading
 ```bash
-# Check Nginx logs
-sudo tail -f /var/log/nginx/error.log
+# Check Apache logs
+sudo tail -f /var/log/apache2/opal-fats-error.log
+sudo tail -f /var/log/apache2/error.log
 
 # Verify build directory exists
 ls -la /opt/opal-unified/frontend/build/
 
-# Check Nginx configuration
-sudo nginx -t
+# Check Apache configuration
+sudo apache2ctl configtest
+
+# Check if Apache is running
+sudo systemctl status apache2
+
+# Verify file permissions
+sudo chown -R www-data:www-data /opt/opal-unified/frontend/build
+sudo chmod -R 755 /opt/opal-unified/frontend/build
 ```
 
 ### Images Not Displaying
@@ -297,11 +382,18 @@ sudo nginx -t
 # Check file permissions
 ls -la /opt/opal-unified/backend/uploads/fats/
 
-# Check Nginx can access files
+# Check Apache can access files
 sudo -u www-data ls /opt/opal-unified/backend/uploads/fats/
 
 # Verify files exist
 find /opt/opal-unified/backend/uploads/fats/ -name "2633_*" | head -5
+
+# Check Apache error logs for permission issues
+sudo tail -f /var/log/apache2/opal-fats-error.log
+
+# Fix permissions if needed
+sudo chown -R www-data:www-data /opt/opal-unified/backend/uploads/
+sudo chmod -R 755 /opt/opal-unified/backend/uploads/
 ```
 
 ### Database Connection Issues
@@ -331,7 +423,12 @@ sudo systemctl restart opal-backend
 cd /opt/opal-unified/frontend
 npm install
 npm run build
-sudo systemctl reload nginx
+
+# Reload Apache (no downtime)
+sudo systemctl reload apache2
+
+# Or restart Apache (brief downtime)
+sudo systemctl restart apache2
 ```
 
 ### View Logs
@@ -339,11 +436,16 @@ sudo systemctl reload nginx
 # Backend logs
 sudo journalctl -u opal-backend -f
 
-# Nginx access logs
-sudo tail -f /var/log/nginx/access.log
+# Apache access logs
+sudo tail -f /var/log/apache2/opal-fats-access.log
+sudo tail -f /var/log/apache2/access.log
 
-# Nginx error logs
-sudo tail -f /var/log/nginx/error.log
+# Apache error logs
+sudo tail -f /var/log/apache2/opal-fats-error.log
+sudo tail -f /var/log/apache2/error.log
+
+# Backend application logs
+tail -f /opt/opal-unified/backend/logs/app.log
 ```
 
 ### Backup
