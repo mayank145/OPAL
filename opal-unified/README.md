@@ -40,7 +40,8 @@ The Fault Tracking System (FATS) is a modern web application for managing faults
 
 ### Deployment
 - **Virtual Machine** - Direct deployment on VM (recommended)
-- **Nginx** - Reverse proxy and static file serving
+- **Apache** - Web server and reverse proxy (recommended, compatible with legacy system)
+- **Nginx** - Alternative web server option
 - **systemd** - Service management for backend
 - **Python Virtual Environment** - Isolated Python dependencies
 
@@ -224,8 +225,22 @@ npm run build
 # Serve build/ directory with Nginx
 ```
 
-3. **Nginx Configuration**:
-See `PRODUCTION_DEPLOYMENT_CHECKLIST.md` for complete Nginx configuration.
+3. **Web Server Configuration**:
+
+**Apache (Recommended):**
+```bash
+# See detailed guide
+cat deployment/apache/APACHE_SETUP_GUIDE.md
+
+# Quick setup
+sudo cp deployment/apache/fats-frontend.conf /etc/apache2/sites-available/fats.conf
+sudo nano /etc/apache2/sites-available/fats.conf  # Update paths
+sudo a2ensite fats.conf
+sudo systemctl reload apache2
+```
+
+**Nginx (Alternative):**
+See `PRODUCTION_DEPLOYMENT_CHECKLIST.md` for Nginx configuration.
 
 ### Systemd Service
 

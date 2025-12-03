@@ -118,7 +118,28 @@ npm install
 npm run build
 ```
 
-### 3. Serve with Nginx
+### 3. Serve with Apache or Nginx
+
+#### Option A: Apache (Recommended)
+
+See detailed guide: `deployment/apache/APACHE_SETUP_GUIDE.md`
+
+Quick setup:
+```bash
+# Install Apache
+sudo apt-get install apache2
+
+# Enable modules
+sudo a2enmod ssl proxy proxy_http rewrite headers expires
+
+# Copy and configure
+sudo cp deployment/apache/fats-frontend.conf /etc/apache2/sites-available/fats.conf
+sudo nano /etc/apache2/sites-available/fats.conf  # Update paths and domain
+sudo a2ensite fats.conf
+sudo systemctl reload apache2
+```
+
+#### Option B: Nginx
 ```nginx
 server {
     listen 80;
