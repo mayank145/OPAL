@@ -1,0 +1,96 @@
+# Production Deployment Pipeline
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to Production VM
+      env:
+        VM_HOST: ${{ secrets.VM_HOST }}
+        VM_USER: ${{ secrets.VM_USER }}
+        VM_PATH: ${{ secrets.VM_PATH }}
+      run: |
+        # Deploy script
+        ssh ${VM_USER}@${VM_HOST} << 'EOF'
+          set -e
+          
+          echo "🚀 Starting deployment..."
+          
+          # Navigate to project directory
+          cd ${VM_PATH}
+          
+          # Backup current version
+          echo "📦 Creating backup..."
+          tar -czf backup-$(date +%Y%m%d-%H%M%S).tar.gz backend/ frontend/ || true
+          
+          # Pull latest code
+          echo "📥 Pulling latest code..."
+          git fetch origin main
+          git reset --hard origin/main
+          
+          # Backend deployment
+          echo "🔧 Deploying backend..."
+          cd backend
+          source venv/bin/activate
+          pip install -r requirements.txt --quiet
+          
+          # Database migrations (if any)
+          # alembic upgrade head
+          
+          # Restart backend
+          echo "♻️  Restarting backend..."
+          killall uvicorn || true
+          sleep 2
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
+          
+          # Frontend deployment
+          echo "🎨 Deploying frontend..."
+          cd ../frontend
+          npm install --quiet
+          npm run build
+          
+          # Restart frontend
+          echo "♻️  Restarting frontend..."
+          pkill -f "react-scripts start" || true
+          sleep 2
+          nohup npm start > /tmp/frontend.log 2>&1 &
+          
+          # Health check
+          echo "🏥 Health check..."
+          sleep 5
+          curl -f http://localhost:8000/health || exit 1
+          curl -f http://localhost:3000 || exit 1
+          
+          echo "✅ Deployment successful!"
+        EOF
+
+    - name: Notify on success
+      if: success()
+      run: |
+        echo "✅ Production deployment successful!"
+        # Add Slack/Email notification here
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Production deployment failed!"
+        # Add Slack/Email notification here
+

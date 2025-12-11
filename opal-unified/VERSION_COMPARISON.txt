@@ -1,0 +1,16 @@
+OPAL Version Comparison
+Generated: Wed Dec 10 10:00:40 HST 2025
+
+LOCAL:
+  Branch:  main
+  Commit:  dffc8ef
+  Message: dffc8ef Update VM deployment guide to use Apache instead of Nginx
+  Uncommitted: YES
+
+VM (root@opalfailover):
+  Branch:  master
+  Commit:  6de0b3c
+  Message: 6de0b3c Initial commit - current deployed state
+  Uncommitted: NO
+
+MATCH: NO

@@ -95,7 +95,7 @@ class FATSService:
     ) -> List[FATSEntry]:
         """Get all FATS entries with filtering - optimized for performance"""
         # Limit maximum results to prevent timeout
-        limit = min(limit, 20)  # Reduced to 20 for faster response
+        limit = min(limit, 10000)  # Allow up to 10000 for fetching all faults
         skip = min(skip, 500)  # Cap skip to prevent deep pagination
         
         try:

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import uvicorn
+import os
 
 from app.core.config import settings
 from app.core.logging_config import logger
@@ -55,10 +56,14 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
 # Add timeout middleware first
 app.add_middleware(TimeoutMiddleware)
 
+# Parse CORS origins from environment variable
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost,http://127.0.0.1:3000")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -24,10 +24,6 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_hours: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
     
-    # CORS - Production origins should be set via environment variable
-    allowed_origins_str: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost,http://127.0.0.1:3000")
-    allowed_origins: List[str] = [origin.strip() for origin in allowed_origins_str.split(",") if origin.strip()]
-    
     # File Upload Settings
     upload_dir: str = os.getenv("UPLOAD_DIR", "uploads")
     fats_images_dir: str = os.getenv("FATS_IMAGES_DIR", "uploads/fats")

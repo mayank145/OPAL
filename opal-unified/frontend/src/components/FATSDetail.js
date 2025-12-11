@@ -783,7 +783,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid item xs={12} sm={2.5}>
                 <TextField
                   fullWidth
                   label="Date"
@@ -824,7 +824,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid item xs={12} sm={1.5}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
                   <Select

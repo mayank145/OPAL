@@ -83,7 +83,7 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
       // Reload comments
       await loadComments();
       
-      if (onSave) onSave();
+      if (onSave) onSave(fatsId);
     } catch (err) {
       setError(err.message || 'Failed to add comment');
     } finally {
