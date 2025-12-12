@@ -251,13 +251,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     return text.replace(datePattern, '').trim() || 'N/A';
   };
 
-  // Truncate text to specified length with ellipsis (for solution titles)
-  const truncateText = (text, maxLength = 60) => {
-    if (!text) return 'N/A';
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength).trim() + '...';
-  };
-
   // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -467,8 +460,8 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ maxWidth: 300 }}>
-                          {truncateText(fats.solution, 60)}
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
+                          {stripHtml(fats.sdescribe) || fats.solution || 'N/A'}
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
