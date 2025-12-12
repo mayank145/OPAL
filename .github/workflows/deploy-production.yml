@@ -1,0 +1,55 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:  # Manual trigger only
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to Server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.PROD_SERVER_HOST }}
+        username: ${{ secrets.PROD_SERVER_USER }}
+        key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+        script: |
+          cd /opt/OPAL/opal-unified
+          
+          # Pull latest changes
+          git pull origin main
+          
+          # Update backend
+          cd backend
+          source venv/bin/activate
+          pip install -r requirements.txt --quiet
+          cd ..
+          
+          # Update frontend
+          cd frontend
+          npm install --silent
+          npm run build
+          cd ..
+          
+          # Restart services
+          sudo systemctl restart opal-backend
+          sudo systemctl reload httpd
+          
+          # Verify deployment
+          sleep 5
+          curl -f http://localhost:8000/health || exit 1
+          echo "✅ Deployment successful!"
+    
+    - name: Notify on failure
+      if: failure()
+      run: echo "⚠️ Deployment failed!"
+
