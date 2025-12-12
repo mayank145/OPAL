@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Box,
   Paper,
@@ -32,8 +32,9 @@ import {
 } from '@mui/icons-material';
 import { fatsAPI, referenceAPI } from '../services/api';
 
-const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
+const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }, ref) => {
   const [fatsList, setFatsList] = useState([]);
+  const [allFatsList, setAllFatsList] = useState([]); // Store all fetched data for client-side filtering
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,26 +43,106 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
   const [statusFilter, setStatusFilter] = useState('');
   const [statistics, setStatistics] = useState(null);
   const [sections, setSections] = useState([]); // All available sections from fsection table
+  
+  // Expose refresh method to parent component
+  useImperativeHandle(ref, () => ({
+    refresh: () => {
+      console.log('🔄 Refreshing FATS list...');
+      loadFATS();
+    }
+  }));
 
   const loadFATS = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // If search term looks like an IDNo, use search endpoint
-      if (activeSearchTerm.trim() && activeSearchTerm.trim().length >= 3) {
-        const results = await fatsAPI.searchByIdno(activeSearchTerm.trim());
-        setFatsList(results || []);
+      console.log('🔍 Loading FATS - Section:', sectionFilter, 'Search:', activeSearchTerm);
+      
+      // Check if search term is a pure number (likely an IDNo)
+      const isIdSearch = activeSearchTerm && /^\d+$/.test(activeSearchTerm.trim());
+      
+      let results;
+      
+      if (isIdSearch) {
+        // Use backend searchByIdno for ID searches (searches entire database)
+        console.log('🔢 Searching by ID in entire database:', activeSearchTerm.trim());
+        results = await fatsAPI.searchByIdno(activeSearchTerm.trim());
+        
+        // Apply section filter if selected
+        if (sectionFilter && results) {
+          results = results.filter(fault => 
+            fault.section === sectionFilter || fault.section2 === sectionFilter
+          );
+          console.log('📂 Filtered by section:', results.length, 'results');
+        }
+      } else if (activeSearchTerm && activeSearchTerm.trim()) {
+        const searchTerm = activeSearchTerm.trim();
+        
+        // Check if it's a phrase search (wrapped in quotes)
+        const isPhraseSearch = (searchTerm.startsWith('"') && searchTerm.endsWith('"')) ||
+                               (searchTerm.startsWith("'") && searchTerm.endsWith("'"));
+        
+        if (isPhraseSearch) {
+          // Phrase search: Search for exact phrase
+          const phrase = searchTerm.slice(1, -1).trim(); // Remove quotes
+          console.log('📖 Searching for exact phrase:', phrase);
+          
+          const params = {
+            search: phrase,
+            section: sectionFilter || undefined,
+            limit: 1000,
+          };
+          
+          results = await fatsAPI.getAll(params);
+          console.log('✅ Found:', results.length, 'faults matching phrase:', phrase);
+        } else {
+          // Keyword search: Use backend with high limit to search entire database
+          console.log('🔎 Searching entire database for keywords:', searchTerm);
+          
+          // Split keywords and search for each one, then combine results
+          const keywords = searchTerm.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+          const allResults = [];
+          const seenIds = new Set();
+          
+          // Search for each keyword
+          for (const keyword of keywords) {
+            const params = {
+              search: keyword,
+              section: sectionFilter || undefined,
+              limit: 1000, // High limit to search more records
+            };
+            
+            const keywordResults = await fatsAPI.getAll(params);
+            
+            // Add unique results only
+            keywordResults.forEach(fault => {
+              if (!seenIds.has(fault.idno)) {
+                seenIds.add(fault.idno);
+                allResults.push(fault);
+              }
+            });
+          }
+          
+          results = allResults;
+          console.log('✅ Found:', results.length, 'unique faults for', keywords.length, 'keyword(s)');
+        }
       } else {
+        // No search term: Just fetch with filters
         const params = {
-          search: activeSearchTerm || undefined,
           section: sectionFilter || undefined,
-          status: statusFilter || undefined,
-          limit: 20, // Reduced to 20 for faster loading and to prevent timeouts
+          limit: 100,
         };
-        const results = await fatsAPI.getAll(params);
-        setFatsList(results || []);
+        results = await fatsAPI.getAll(params);
       }
+      
+      setAllFatsList(results || []);
+      
+      // Limit to 20 results for display on main page
+      const limited = (results || []).slice(0, 20);
+      console.log('📊 Displaying:', limited.length, 'faults');
+      
+      setFatsList(limited);
       
       // Load statistics (only once, not on every search)
       if (!statistics) {
@@ -225,7 +306,7 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
 
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
           <TextField
-            placeholder="Search by issue..."
+            placeholder="Search by ID, keywords (e.g., 4767 camera fault)..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
@@ -238,13 +319,16 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                 </InputAdornment>
               ),
             }}
+            helperText='Search by ID (4767), keywords (tracking error), or exact phrase ("tracking error")'
           />
           <Button
             variant="contained"
             onClick={handleSearch}
             startIcon={<SearchIcon />}
+            size="small"
+            sx={{ height: '40px', alignSelf: 'flex-start' }}
           >
-            Search
+            SEARCH
           </Button>
             <FormControl size="small" sx={{ minWidth: 200 }}>
               <InputLabel>Section</InputLabel>
@@ -261,18 +345,6 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                 ))}
               </Select>
             </FormControl>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel>Status</InputLabel>
-            <Select
-              value={statusFilter}
-              label="Status"
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <MenuItem value="">All Status</MenuItem>
-              <MenuItem value="Active">Active</MenuItem>
-              <MenuItem value="Canceled">Canceled</MenuItem>
-            </Select>
-          </FormControl>
         </Box>
 
         {error && (
@@ -292,8 +364,8 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                 <TableRow>
                   <TableCell>IDNo</TableCell>
                   <TableCell>Date</TableCell>
+                  <TableCell>Section</TableCell>
                   <TableCell>Issue</TableCell>
-                  <TableCell>Description</TableCell>
                   <TableCell>Solution</TableCell>
                   <TableCell align="center">Actions</TableCell>
                 </TableRow>
@@ -302,9 +374,42 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                 {fatsList.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} align="center">
-                      <Typography variant="body2" color="text.secondary">
-                        No FATS entries found
-                      </Typography>
+                      <Box sx={{ py: 4 }}>
+                        <Typography variant="h6" color="text.secondary" gutterBottom>
+                          {activeSearchTerm ? '🔍 No Faults Found' : '📋 No FATS Entries'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          {activeSearchTerm && /^\d+$/.test(activeSearchTerm.trim()) ? (
+                            <>
+                              Fault ID <strong>{activeSearchTerm}</strong> does not exist in the database.
+                              {sectionFilter && <><br />Section filter: <strong>{sectionFilter}</strong></>}
+                              <br /><br />
+                              <Typography variant="caption" component="span">
+                                💡 Try searching without section filter or verify the ID number.
+                              </Typography>
+                            </>
+                          ) : activeSearchTerm ? (
+                            <>
+                              No faults found matching: <strong>{activeSearchTerm}</strong>
+                              {sectionFilter && <><br />in section: <strong>{sectionFilter}</strong></>}
+                              <br /><br />
+                              <Typography variant="caption" component="span">
+                                💡 Try different keywords, check spelling, or remove section filter.
+                              </Typography>
+                            </>
+                          ) : sectionFilter ? (
+                            <>
+                              No faults found in section: <strong>{sectionFilter}</strong>
+                              <br /><br />
+                              <Typography variant="caption" component="span">
+                                💡 Try selecting a different section or "All Sections".
+                              </Typography>
+                            </>
+                          ) : (
+                            'No FATS entries available'
+                          )}
+                        </Typography>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -333,6 +438,11 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                         </Typography>
                       </TableCell>
                       <TableCell>
+                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                          {fats.section || fats.section2 || '.none'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
                         <Typography
                           variant="body2"
                           noWrap
@@ -350,43 +460,40 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 400 }}>
-                          {cleanDescription(stripHtml(fats.idescribe))}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
                         <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
                           {stripHtml(fats.sdescribe) || fats.solution || 'N/A'}
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
-                        <Tooltip title="View Details">
-                          <IconButton
-                            size="small"
-                            onClick={() => onViewFATS(fats.idno)}
-                            color="primary"
-                          >
-                            <ViewIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Edit">
-                          <IconButton
-                            size="small"
-                            onClick={() => onEditFATS(fats.idno)}
-                            color="info"
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Add Comment">
-                          <IconButton
-                            size="small"
-                            onClick={() => onAddComment(fats.idno)}
-                            color="success"
-                          >
-                            <CommentIcon />
-                          </IconButton>
-                        </Tooltip>
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                          <Tooltip title="View Details">
+                            <IconButton
+                              size="small"
+                              onClick={() => onViewFATS(fats.idno)}
+                              color="primary"
+                            >
+                              <ViewIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Edit">
+                            <IconButton
+                              size="small"
+                              onClick={() => onEditFATS(fats.idno)}
+                              color="info"
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Add Comment">
+                            <IconButton
+                              size="small"
+                              onClick={() => onAddComment(fats.idno)}
+                              color="success"
+                            >
+                              <CommentIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   ))
@@ -398,7 +505,7 @@ const FATSList = ({ onViewFATS, onEditFATS, onAddComment, onRefresh }) => {
       </Paper>
     </Box>
   );
-};
+});
 
 export default FATSList;
 

@@ -783,7 +783,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid item xs={12} sm={2.5}>
                 <TextField
                   fullWidth
                   label="Date"
@@ -824,7 +824,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={12} sm={2}>
+              <Grid item xs={12} sm={1.5}>
                 <FormControl fullWidth>
                   <InputLabel>Status</InputLabel>
                   <Select
@@ -850,18 +850,57 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
               )}
             </Grid>
 
-            {/* Issue Section */}
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold' }}>Issue</Typography>
+            {/* SECTION 1: ISSUE INFORMATION */}
+            <Paper elevation={2} sx={{ p: 3, mb: 4, bgcolor: '#f8f9fa' }}>
+              <Typography variant="h6" sx={{ mb: 3, fontWeight: 'bold', color: 'primary.main', borderBottom: '2px solid', borderColor: 'primary.main', pb: 1 }}>
+                Issue Information
+              </Typography>
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Issue:</Typography>
               <TextField
                 fullWidth
-                label="issue:"
+                label="Issue"
                 value={formData.issue}
                 onChange={handleChange('issue')}
                 disabled={isViewMode}
-                sx={{ mb: 2 }}
+                sx={{ mb: 3 }}
               />
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Issue Describe:</Typography>
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Sections:</Typography>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Section</InputLabel>
+                    <Select
+                      value={formData.section || '.none'}
+                      label="Section"
+                      onChange={handleChange('section')}
+                      disabled={isViewMode}
+                    >
+                      {sections.map((section) => (
+                        <MenuItem key={section} value={section}>{formatSectionDisplay(section)}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Section 2</InputLabel>
+                    <Select
+                      value={formData.section2 || '.none'}
+                      label="Section 2"
+                      onChange={handleChange('section2')}
+                      disabled={isViewMode}
+                    >
+                      {sections.map((section) => (
+                        <MenuItem key={section} value={section}>{formatSectionDisplay(section)}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </Grid>
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Issue Description:</Typography>
               {isViewMode ? (
                 <Box
                   sx={{
@@ -920,32 +959,35 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                   )}
                 </Box>
               )}
-            </Box>
+            </Paper>
 
-            {/* Action and Solution Section */}
-            <Box>
-              <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 'bold' }}>Action and Solution</Typography>
-              <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Action"
-                    value={formData.todo}
-                    onChange={handleChange('todo')}
-                    disabled={isViewMode}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={6}>
-                  <TextField
-                    fullWidth
-                    label="Solution"
-                    value={formData.solution}
-                    onChange={handleChange('solution')}
-                    disabled={isViewMode}
-                  />
-                </Grid>
-              </Grid>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>Solution Describe:</Typography>
+            {/* SECTION 2: ACTION / RESOLUTION */}
+            <Paper elevation={2} sx={{ p: 3, bgcolor: '#f0f7ff' }}>
+              <Typography variant="h6" sx={{ mb: 3, fontWeight: 'bold', color: 'success.main', borderBottom: '2px solid', borderColor: 'success.main', pb: 1 }}>
+                Action / Resolution
+              </Typography>
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Action:</Typography>
+              <TextField
+                fullWidth
+                label="Action"
+                value={formData.todo}
+                onChange={handleChange('todo')}
+                disabled={isViewMode}
+                sx={{ mb: 3 }}
+              />
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Solution:</Typography>
+              <TextField
+                fullWidth
+                label="Solution"
+                value={formData.solution}
+                onChange={handleChange('solution')}
+                disabled={isViewMode}
+                sx={{ mb: 3 }}
+              />
+              
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Solution Description:</Typography>
                   {isViewMode ? (
                     <Box
                       sx={{
@@ -1057,64 +1099,16 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                       )}
                     </Box>
                   )}
-            </Box>
-            
-            {/* Comments Section */}
-            {fats && comments.length > 0 && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="h6" sx={{ mb: 2 }}>
-                  Comments ({comments.length})
-                </Typography>
-                <Paper variant="outlined" sx={{ p: 2, maxHeight: 300, overflow: 'auto' }}>
-                  <List>
-                    {comments.map((comment, index) => (
-                      <ListItem key={comment.id || index} alignItems="flex-start">
-                        <ListItemText
-                          primary={
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Typography variant="subtitle2">
-                                {comment.commenter || 'Anonymous'}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {comment.created_at ? new Date(comment.created_at).toLocaleString() : 'N/A'}
-                              </Typography>
-                            </Box>
-                          }
-                          secondary={
-                            <Typography
-                              variant="body2"
-                              component="div"
-                              sx={{ mt: 1, whiteSpace: 'pre-wrap' }}
-                            >
-                              {cleanDescription(stripHtml(comment.comment_text || ''))}
-                            </Typography>
-                          }
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
-                </Paper>
-              </>
-            )}
-            
-            {fats && comments.length === 0 && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
-                  No comments yet
-                </Typography>
-              </>
-            )}
-
-            {/* Images Section */}
-            {fats && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6">
-                    Pictures ({images.length})
-                  </Typography>
+              
+              {/* Pictures Section */}
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 'bold' }}>Pictures:</Typography>
+              {fats && (
+                <Box sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {images.length} image(s)
+                    </Typography>
                   {!isViewMode && (
                     <>
                       <input
@@ -1193,8 +1187,48 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                     No pictures yet
                   </Typography>
                 )}
-              </>
-            )}
+                </Box>
+              )}
+              
+              {/* Comments Section */}
+              <Divider sx={{ my: 3 }} />
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 'bold' }}>Comments:</Typography>
+              {fats && comments.length > 0 ? (
+                <Paper variant="outlined" sx={{ p: 2, maxHeight: 300, overflow: 'auto' }}>
+                  <List>
+                    {comments.map((comment, index) => (
+                      <ListItem key={comment.id || index} alignItems="flex-start">
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Typography variant="subtitle2">
+                                {comment.commenter || 'Anonymous'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {comment.created_at ? new Date(comment.created_at).toLocaleString() : 'N/A'}
+                              </Typography>
+                            </Box>
+                          }
+                          secondary={
+                            <Typography
+                              variant="body2"
+                              component="div"
+                              sx={{ mt: 1, whiteSpace: 'pre-wrap' }}
+                            >
+                              {cleanDescription(stripHtml(comment.comment_text || ''))}
+                            </Typography>
+                          }
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              ) : fats && (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                  No comments yet
+                </Typography>
+              )}
+            </Paper>
           </Box>
         )}
       </DialogContent>

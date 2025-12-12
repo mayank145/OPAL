@@ -95,8 +95,8 @@ class FATSService:
     ) -> List[FATSEntry]:
         """Get all FATS entries with filtering - optimized for performance"""
         # Limit maximum results to prevent timeout
-        limit = min(limit, 20)  # Reduced to 20 for faster response
-        skip = min(skip, 500)  # Cap skip to prevent deep pagination
+        limit = min(limit, 10000)  # Allow up to 10000 for full list views
+        skip = min(skip, 5000)  # Cap skip to prevent deep pagination
         
         try:
             # Use ORM query but optimized - select only needed columns

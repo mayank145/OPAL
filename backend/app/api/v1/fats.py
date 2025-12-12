@@ -26,7 +26,7 @@ image_service = ImageService()
 @router.get("/", response_model=List[FATSEntryResponse])
 async def list_fats(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(20, ge=1, le=100, description="Max number of records to return"),
+    limit: int = Query(20, ge=1, le=10000, description="Max number of records to return"),
     search: Optional[str] = Query(None, description="Search term"),
     section: Optional[str] = Query(None, description="Filter by section"),
     status: Optional[str] = Query(None, description="Filter by status"),

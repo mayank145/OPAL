@@ -1,7 +1,7 @@
 """
 Pydantic schemas for FATS entries
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 # from app.models.fats_entry import FATSStatus, FATSPriority
@@ -49,7 +49,7 @@ class FATSEntryUpdate(BaseModel):
 
 class FATSEntryResponse(FATSEntryBase):
     """Schema for FATS entry responses - maps legacy field names"""
-    datein: datetime
+    datein: Optional[datetime] = None  # Handle invalid dates like 0000-00-00
     likes: int = 0
     dislikes: int = 0
     views: int = 0  # Added to match legacy
@@ -57,6 +57,16 @@ class FATSEntryResponse(FATSEntryBase):
     created_at: Optional[datetime] = None  # Maps to datein
     updated_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
+    
+    @field_validator('datein', 'created_at', 'updated_at', 'resolved_at', mode='before')
+    @classmethod
+    def handle_invalid_dates(cls, v):
+        """Handle invalid dates like 0000-00-00 00:00:00 from legacy database"""
+        if v is None:
+            return None
+        if isinstance(v, str) and v.startswith('0000-00-00'):
+            return None
+        return v
     
     class Config:
         from_attributes = True
