@@ -179,7 +179,7 @@ const FullFaultsList = ({ open, onClose }) => {
                         </TableCell>
                         <TableCell sx={{ width: '35%' }}>
                           <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
-                            {stripHtml(fault.sdescribe) || fault.solution || ''}
+                            {fault.solution || 'N/A'}
                           </Typography>
                         </TableCell>
                       </TableRow>

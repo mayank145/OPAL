@@ -461,7 +461,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" noWrap sx={{ maxWidth: 300 }}>
-                          {stripHtml(fats.sdescribe) || fats.solution || 'N/A'}
+                          {fats.solution || 'N/A'}
                         </Typography>
                       </TableCell>
                       <TableCell align="center">
