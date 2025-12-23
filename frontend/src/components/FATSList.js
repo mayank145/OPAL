@@ -236,6 +236,15 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSearchTerm, searchMode, sectionFilter, statusFilter]); // Removed loadFATS from deps to prevent infinite loop
 
+  // Auto-clear search when search term is erased
+  useEffect(() => {
+    if (searchTerm === '' && activeSearchTerm !== '') {
+      // When user clears the search box, reset to show previous entries
+      console.log('🔄 Search cleared, resetting to default view');
+      setActiveSearchTerm('');
+    }
+  }, [searchTerm, activeSearchTerm]);
+
   const handleSearch = () => {
     // Update active search term to trigger search
     setActiveSearchTerm(searchTerm);
