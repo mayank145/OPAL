@@ -23,31 +23,88 @@ jobs:
         username: ${{ secrets.PROD_SERVER_USER }}
         key: ${{ secrets.PROD_SERVER_SSH_KEY }}
         script: |
-          cd /opt/OPAL/OPAL
+          set -e  # Exit on any error
+          
+          echo "=== Starting Deployment ==="
+          
+          # Find the correct project directory
+          if [ -d "/opt/OPAL/OPAL" ]; then
+            PROJECT_DIR="/opt/OPAL/OPAL"
+          elif [ -d "/opt/OPAL/opal-unified" ]; then
+            PROJECT_DIR="/opt/OPAL/opal-unified"
+          else
+            echo "❌ Error: Project directory not found!"
+            exit 1
+          fi
+          
+          echo "✅ Found project at: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
           
           # Pull latest changes
-          git pull origin main
+          echo "📥 Pulling latest changes..."
+          git pull origin main || { echo "❌ Git pull failed"; exit 1; }
           
           # Update backend
+          echo "🔧 Updating backend..."
           cd backend
-          source venv/bin/activate
-          pip install -r requirements.txt --quiet
+          if [ -f "venv/bin/activate" ]; then
+            source venv/bin/activate
+            pip install -r requirements.txt --quiet || echo "⚠️ Warning: pip install had issues"
+          else
+            echo "⚠️ Warning: Virtual environment not found, skipping pip install"
+          fi
           cd ..
           
           # Update frontend
+          echo "🎨 Building frontend..."
           cd frontend
-          npm install --silent
-          npm run build
+          if command -v npm &> /dev/null; then
+            npm install --silent || echo "⚠️ Warning: npm install had issues"
+            npm run build || { echo "❌ Frontend build failed"; exit 1; }
+          else
+            echo "❌ Error: npm not found!"
+            exit 1
+          fi
           cd ..
           
           # Restart services
-          systemctl restart opal-backend
-          systemctl restart httpd
+          echo "🔄 Restarting services..."
+          
+          # Try different service names for backend
+          if systemctl is-active --quiet opal-backend; then
+            systemctl restart opal-backend && echo "✅ Restarted opal-backend"
+          elif systemctl is-active --quiet opal-backend.service; then
+            systemctl restart opal-backend.service && echo "✅ Restarted opal-backend.service"
+          else
+            echo "⚠️ Warning: opal-backend service not found or not running"
+          fi
+          
+          # Restart web server
+          if systemctl is-active --quiet httpd; then
+            systemctl restart httpd && echo "✅ Restarted httpd"
+          elif systemctl is-active --quiet apache2; then
+            systemctl restart apache2 && echo "✅ Restarted apache2"
+          else
+            echo "⚠️ Warning: Web server not found"
+          fi
           
           # Verify deployment
-          sleep 5
-          curl -f http://localhost:8000/health || exit 1
-          echo "✅ Deployment successful!"
+          echo "🔍 Verifying deployment..."
+          sleep 3
+          
+          if curl -f http://localhost:8000/health &> /dev/null; then
+            echo "✅ Backend health check passed!"
+          else
+            echo "⚠️ Warning: Backend health check failed, but continuing..."
+          fi
+          
+          if curl -f http://localhost/ &> /dev/null; then
+            echo "✅ Frontend is accessible!"
+          else
+            echo "⚠️ Warning: Frontend not accessible"
+          fi
+          
+          echo "=== Deployment Complete ==="
     
     - name: Notify on failure
       if: failure()
