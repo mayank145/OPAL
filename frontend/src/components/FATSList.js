@@ -175,11 +175,10 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       
       setAllFatsList(results || []);
       
-      // Limit to 20 results for display on main page
-      const limited = (results || []).slice(0, 20);
-      console.log('📊 Displaying:', limited.length, 'faults');
+      // Display all results on main page
+      console.log('📊 Displaying:', (results || []).length, 'faults');
       
-      setFatsList(limited);
+      setFatsList(results || []);
       
       // Load statistics (only once, not on every search)
       if (!statistics) {
