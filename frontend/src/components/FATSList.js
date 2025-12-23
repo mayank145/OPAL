@@ -21,6 +21,8 @@ import {
   Tooltip,
   CircularProgress,
   Alert,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -39,6 +41,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSearchTerm, setActiveSearchTerm] = useState(''); // The term actually used for search
+  const [searchMode, setSearchMode] = useState('OR'); // 'OR' or 'AND' search mode
   const [sectionFilter, setSectionFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [statistics, setStatistics] = useState(null);
@@ -98,34 +101,68 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
           console.log('✅ Found:', results.length, 'faults matching phrase:', phrase);
         } else {
           // Keyword search: Use backend with high limit to search entire database
-          console.log('🔎 Searching entire database for keywords:', searchTerm);
+          console.log(`🔎 Searching entire database for keywords (${searchMode} mode):`, searchTerm);
           
-          // Split keywords and search for each one, then combine results
+          // Split keywords and search for each one
           const keywords = searchTerm.toLowerCase().split(/\s+/).filter(k => k.length > 0);
-          const allResults = [];
-          const seenIds = new Set();
           
-          // Search for each keyword
-          for (const keyword of keywords) {
-            const params = {
-              search: keyword,
+          if (searchMode === 'OR') {
+            // OR Logic: Return faults matching ANY keyword
+            const allResults = [];
+            const seenIds = new Set();
+            
+            // Search for each keyword
+            for (const keyword of keywords) {
+              const params = {
+                search: keyword,
+                section: sectionFilter || undefined,
+                limit: 1000, // High limit to search more records
+              };
+              
+              const keywordResults = await fatsAPI.getAll(params);
+              
+              // Add unique results only
+              keywordResults.forEach(fault => {
+                if (!seenIds.has(fault.idno)) {
+                  seenIds.add(fault.idno);
+                  allResults.push(fault);
+                }
+              });
+            }
+            
+            results = allResults;
+            console.log('✅ OR Search - Found:', results.length, 'unique faults for', keywords.length, 'keyword(s)');
+          } else {
+            // AND Logic: Return faults matching ALL keywords
+            console.log('🔍 AND mode - searching for faults with ALL keywords');
+            
+            // First, get results for the first keyword
+            const firstKeywordParams = {
+              search: keywords[0],
               section: sectionFilter || undefined,
-              limit: 1000, // High limit to search more records
+              limit: 1000,
             };
             
-            const keywordResults = await fatsAPI.getAll(params);
+            let candidateResults = await fatsAPI.getAll(firstKeywordParams);
+            console.log(`  → Found ${candidateResults.length} faults with keyword: "${keywords[0]}"`);
             
-            // Add unique results only
-            keywordResults.forEach(fault => {
-              if (!seenIds.has(fault.idno)) {
-                seenIds.add(fault.idno);
-                allResults.push(fault);
-              }
-            });
+            // For each additional keyword, filter the candidates
+            for (let i = 1; i < keywords.length; i++) {
+              const keyword = keywords[i].toLowerCase();
+              console.log(`  → Filtering for keyword: "${keyword}"`);
+              
+              // Filter candidates to only those containing this keyword
+              candidateResults = candidateResults.filter(fault => {
+                const searchText = `${fault.idno} ${fault.issue} ${fault.solution || ''} ${fault.idescribe || ''} ${fault.sdescribe || ''} ${fault.section || ''} ${fault.section2 || ''}`.toLowerCase();
+                return searchText.includes(keyword);
+              });
+              
+              console.log(`  → Remaining after "${keyword}": ${candidateResults.length} faults`);
+            }
+            
+            results = candidateResults;
+            console.log('✅ AND Search - Found:', results.length, 'faults matching ALL', keywords.length, 'keyword(s)');
           }
-          
-          results = allResults;
-          console.log('✅ Found:', results.length, 'unique faults for', keywords.length, 'keyword(s)');
         }
       } else {
         // No search term: Just fetch with filters
@@ -168,7 +205,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     } finally {
       setLoading(false);
     }
-  }, [activeSearchTerm, sectionFilter, statusFilter, statistics]);
+  }, [activeSearchTerm, searchMode, sectionFilter, statusFilter, statistics]);
 
   // Load sections from API on mount (only once)
   useEffect(() => {
@@ -194,11 +231,11 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   // Load FATS when filters or search term changes
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('FATS load triggered:', { activeSearchTerm, sectionFilter, statusFilter });
+      console.log('FATS load triggered:', { activeSearchTerm, searchMode, sectionFilter, statusFilter });
     }
     loadFATS();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSearchTerm, sectionFilter, statusFilter]); // Removed loadFATS from deps to prevent infinite loop
+  }, [activeSearchTerm, searchMode, sectionFilter, statusFilter]); // Removed loadFATS from deps to prevent infinite loop
 
   const handleSearch = () => {
     // Update active search term to trigger search
@@ -319,7 +356,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                 </InputAdornment>
               ),
             }}
-            helperText='Search by ID (4767), keywords (tracking error), or exact phrase ("tracking error")'
+            helperText={`Search by ID (4767), keywords (tracking error), or exact phrase ("tracking error"). Use OR/AND toggle to match ANY or ALL keywords.`}
           />
           <Button
             variant="contained"
@@ -330,6 +367,29 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
           >
             SEARCH
           </Button>
+          <ToggleButtonGroup
+            value={searchMode}
+            exclusive
+            onChange={(e, newMode) => {
+              if (newMode !== null) {
+                setSearchMode(newMode);
+                console.log('🔀 Search mode changed to:', newMode);
+              }
+            }}
+            size="small"
+            sx={{ height: '40px', alignSelf: 'flex-start' }}
+          >
+            <ToggleButton value="OR">
+              <Tooltip title="Match ANY keyword">
+                <span>OR</span>
+              </Tooltip>
+            </ToggleButton>
+            <ToggleButton value="AND">
+              <Tooltip title="Match ALL keywords">
+                <span>AND</span>
+              </Tooltip>
+            </ToggleButton>
+          </ToggleButtonGroup>
             <FormControl size="small" sx={{ minWidth: 200 }}>
               <InputLabel>Section</InputLabel>
               <Select
