@@ -1,12 +1,12 @@
 name: Deploy to Production
 
 on:
-  workflow_dispatch:  # Manual trigger only
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
+  workflow_dispatch:  # Manual trigger only - disable auto-deploy for now
+  # push:
+  #   branches:
+  #     - main
+  #   tags:
+  #     - 'v*'
 
 jobs:
   deploy:
