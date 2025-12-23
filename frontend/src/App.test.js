@@ -9,6 +9,20 @@ import { fatsAPI } from './services/api';
 // Mock the API
 jest.mock('./services/api');
 
+// Mock FATSDetail to avoid TipTap issues in tests
+jest.mock('./components/FATSDetail', () => {
+  return function MockFATSDetail() {
+    return <div data-testid="mock-fats-detail">FATS Detail Mock</div>;
+  };
+});
+
+// Mock FullFaultsList
+jest.mock('./components/FullFaultsList', () => {
+  return function MockFullFaultsList() {
+    return <div data-testid="mock-full-faults-list">Full Faults List Mock</div>;
+  };
+});
+
 describe('App Component', () => {
   beforeEach(() => {
     // Reset mocks before each test
