@@ -23,7 +23,7 @@ jobs:
         username: ${{ secrets.PROD_SERVER_USER }}
         key: ${{ secrets.PROD_SERVER_SSH_KEY }}
         script: |
-          cd /opt/OPAL/opal-unified
+          cd /opt/OPAL/OPAL
           
           # Pull latest changes
           git pull origin main
@@ -41,8 +41,8 @@ jobs:
           cd ..
           
           # Restart services
-          sudo systemctl restart opal-backend
-          sudo systemctl reload httpd
+          systemctl restart opal-backend
+          systemctl restart httpd
           
           # Verify deployment
           sleep 5
