@@ -123,10 +123,10 @@ function App() {
     
     if (!currentTab) return null;
     
-    if (currentTab.id === 'main') {
-      // Main FATS List page
-      return (
-        <Box>
+    return (
+      <Box>
+        {/* Main FATS List page - Keep mounted but hide when not active */}
+        <Box sx={{ display: currentTab.id === 'main' ? 'block' : 'none' }}>
           <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
             <button
               onClick={() => setFullFaultsListOpen(true)}
@@ -164,12 +164,26 @@ function App() {
             onAddComment={handleAddComment}
           />
         </Box>
-      );
-    } else {
-      // Fault detail tab - renders inline content
-      // Use lastUpdated as key to force re-render when comments are added
-      return <FATSDetailInline key={currentTab.lastUpdated || currentTab.id} fatsId={currentTab.fatsId} />;
-    }
+        
+        {/* Fault detail tabs - Render all open fault tabs */}
+        {openTabs.map((tab, index) => {
+          if (tab.id === 'main') return null;
+          
+          return (
+            <Box 
+              key={tab.id} 
+              sx={{ display: activeTab === index ? 'block' : 'none' }}
+            >
+              {/* Use lastUpdated as key to force re-render when comments are added */}
+              <FATSDetailInline 
+                key={tab.lastUpdated || tab.id} 
+                fatsId={tab.fatsId} 
+              />
+            </Box>
+          );
+        })}
+      </Box>
+    );
   };
 
   return (
