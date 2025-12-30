@@ -94,6 +94,10 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
         HTMLAttributes: {
           class: 'text-blue-600 underline',
         },
+        validate: href => {
+          // Allow internal fault links (#fault-XXXX) or standard URLs
+          return href.startsWith('#fault-') || /^https?:\/\//.test(href);
+        },
       }),
       Image,
     ],
@@ -122,6 +126,10 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
         openOnClick: false,
         HTMLAttributes: {
           class: 'text-blue-600 underline',
+        },
+        validate: href => {
+          // Allow internal fault links (#fault-XXXX) or standard URLs
+          return href.startsWith('#fault-') || /^https?:\/\//.test(href);
         },
       }),
       Image,
@@ -169,7 +177,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
           // Load reference data (sections and staff)
           loadReferenceData();
           
-          if (fatsId && mode === 'view') {
+          if (fatsId && (mode === 'view' || mode === 'edit')) {
             loadFATS();
           } else if (mode === 'create') {
             setFats(null);
@@ -194,6 +202,40 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
         
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [open, fatsId, mode]);
+
+  // Handle clicks on internal fault links in view mode
+  useEffect(() => {
+    if (!open || !isViewMode) return;
+
+    const handleLinkClick = (e) => {
+      const target = e.target.closest('a');
+      if (!target) return;
+      
+      const href = target.getAttribute('href');
+      
+      // Check if it's an internal fault link (#fault-XXXX)
+      if (href && href.startsWith('#fault-')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const faultId = href.replace('#fault-', '');
+        const faultIdNum = parseInt(faultId);
+        
+        if (!isNaN(faultIdNum) && window.handleViewFATS) {
+          // Close current dialog first
+          onClose();
+          // Open the linked fault
+          window.handleViewFATS(faultIdNum);
+        }
+      }
+    };
+
+    // Add event listener to the dialog content
+    const dialogContent = document.querySelector('[role="dialog"]');
+    if (dialogContent) {
+      dialogContent.addEventListener('click', handleLinkClick);
+      return () => dialogContent.removeEventListener('click', handleLinkClick);
+    }
+  }, [open, isViewMode, onClose]);
 
   // Cleanup editors when component unmounts
   useEffect(() => {
@@ -909,6 +951,26 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                     p: 2,
                     minHeight: 200,
                     bgcolor: '#f5f5f5',
+                    '& a': {
+                      color: '#1976d2',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      '&:hover': { color: '#115293' },
+                    },
+                    '& a[href^="#fault-"]': {
+                      color: '#d32f2f',
+                      fontWeight: 600,
+                      '&::before': {
+                        content: '"🔗 "',
+                        fontSize: '0.9em',
+                      },
+                      '&:hover': {
+                        color: '#b71c1c',
+                        backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                        padding: '2px 4px',
+                        borderRadius: '3px',
+                      },
+                    },
                   }}
                   dangerouslySetInnerHTML={{ __html: formData.idescribe || '' }}
                 />
@@ -996,6 +1058,26 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
                         p: 2,
                         minHeight: 200,
                         bgcolor: '#f5f5f5',
+                        '& a': {
+                          color: '#1976d2',
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          '&:hover': { color: '#115293' },
+                        },
+                        '& a[href^="#fault-"]': {
+                          color: '#d32f2f',
+                          fontWeight: 600,
+                          '&::before': {
+                            content: '"🔗 "',
+                            fontSize: '0.9em',
+                          },
+                          '&:hover': {
+                            color: '#b71c1c',
+                            backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                          },
+                        },
                       }}
                       dangerouslySetInnerHTML={{ __html: formData.sdescribe || '' }}
                     />

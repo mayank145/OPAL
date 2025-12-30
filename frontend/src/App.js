@@ -65,6 +65,21 @@ function App() {
     };
   }, [openTabs]);
 
+  // Check URL on mount for #fault-XXXX and auto-open that fault
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash && hash.startsWith('#fault-')) {
+      const faultId = hash.replace('#fault-', '');
+      const faultIdNum = parseInt(faultId);
+      if (!isNaN(faultIdNum)) {
+        // Clear the hash from URL
+        window.history.replaceState(null, '', window.location.pathname);
+        // Open the fault
+        handleViewFATS(faultIdNum);
+      }
+    }
+  }, []); // Run only once on mount
+
   const handleCloseTab = (tabIndex, event) => {
     event.stopPropagation(); // Prevent tab switch on close
     
