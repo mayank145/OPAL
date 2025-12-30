@@ -25,6 +25,7 @@ import {
   ChevronRight as ChevronRightIcon,
   Print as PrintIcon,
   Delete as DeleteIcon,
+  Share as ShareIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
 import { fatsAPI } from '../services/api';
@@ -181,6 +182,18 @@ const FATSDetailInline = ({ fatsId }) => {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleCopyLink = () => {
+    const link = `${window.location.origin}/#fault-${fatsId}`;
+    navigator.clipboard.writeText(link).then(() => {
+      // You could add a snackbar notification here
+      alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
+    }).catch(err => {
+      console.error('Failed to copy link:', err);
+      // Fallback: show the link so user can manually copy it
+      alert(`Copy this link:\n\n${link}`);
+    });
   };
 
   const handlePrintImage = () => {
@@ -345,16 +358,26 @@ const FATSDetailInline = ({ fatsId }) => {
               size="small"
             />
           </Box>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<PrintIcon />}
-            onClick={handlePrint}
-            size="small"
-            sx={{ '@media print': { display: 'none' } }}
-          >
-            Print
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<ShareIcon />}
+              onClick={handleCopyLink}
+              size="small"
+            >
+              Copy Link
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<PrintIcon />}
+              onClick={handlePrint}
+              size="small"
+            >
+              Print
+            </Button>
+          </Box>
         </Box>
         <Typography variant="body2" color="text.secondary">
           Created: {formatDate(fats.datein)} | Operator: {fats.operator || 'N/A'}
