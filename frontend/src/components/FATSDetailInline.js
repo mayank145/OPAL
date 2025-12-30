@@ -51,6 +51,35 @@ const FATSDetailInline = ({ fatsId }) => {
     loadComments();
   }, [fatsId]);
 
+  // Handle clicks on internal fault links
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      const target = e.target.closest('a');
+      if (!target) return;
+      
+      const href = target.getAttribute('href');
+      
+      // Check if it's an internal fault link (#fault-XXXX)
+      if (href && href.startsWith('#fault-')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const faultId = href.replace('#fault-', '');
+        const faultIdNum = parseInt(faultId);
+        
+        if (!isNaN(faultIdNum) && window.handleViewFATS) {
+          window.handleViewFATS(faultIdNum);
+        }
+      }
+    };
+
+    // Add event listener to the component
+    const container = document.getElementById(`fault-detail-${fatsId}`);
+    if (container) {
+      container.addEventListener('click', handleLinkClick);
+      return () => container.removeEventListener('click', handleLinkClick);
+    }
+  }, [fatsId]);
+
   const loadFATSDetail = async () => {
     try {
       setLoading(true);
@@ -370,7 +399,26 @@ const FATSDetailInline = ({ fatsId }) => {
               '& strong, & b': { fontWeight: 'bold' },
               '& em, & i': { fontStyle: 'italic' },
               '& u': { textDecoration: 'underline' },
-              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
+              '& a': { 
+                color: '#1976d2', 
+                textDecoration: 'underline', 
+                cursor: 'pointer',
+                '&:hover': { color: '#115293' },
+                '&[href^="#fault-"]': {
+                  color: '#d32f2f',
+                  fontWeight: 600,
+                  '&::before': {
+                    content: '"🔗 "',
+                    fontSize: '0.9em',
+                  },
+                  '&:hover': {
+                    color: '#b71c1c',
+                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                    padding: '2px 4px',
+                    borderRadius: '3px',
+                  }
+                },
+              },
               '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
@@ -415,7 +463,26 @@ const FATSDetailInline = ({ fatsId }) => {
               '& strong, & b': { fontWeight: 'bold' },
               '& em, & i': { fontStyle: 'italic' },
               '& u': { textDecoration: 'underline' },
-              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
+              '& a': { 
+                color: '#1976d2', 
+                textDecoration: 'underline', 
+                cursor: 'pointer',
+                '&:hover': { color: '#115293' },
+                '&[href^="#fault-"]': {
+                  color: '#d32f2f',
+                  fontWeight: 600,
+                  '&::before': {
+                    content: '"🔗 "',
+                    fontSize: '0.9em',
+                  },
+                  '&:hover': {
+                    color: '#b71c1c',
+                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                    padding: '2px 4px',
+                    borderRadius: '3px',
+                  }
+                },
+              },
               '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },

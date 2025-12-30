@@ -13,6 +13,7 @@ import {
   Redo,
   Link as LinkIcon,
   Image as ImageIcon,
+  Tag as TagIcon,
 } from '@mui/icons-material';
 
 const MenuBar = ({ editor }) => {
@@ -124,7 +125,7 @@ const MenuBar = ({ editor }) => {
       <ButtonGroup size="small" variant="outlined">
         <Button
           onClick={() => {
-            const url = window.prompt('Enter URL:');
+            const url = window.prompt('Enter URL (or #fault-XXXX for internal fault link):');
             if (url) {
               editor.chain().focus().setLink({ href: url }).run();
             } else if (url === '') {
@@ -135,6 +136,26 @@ const MenuBar = ({ editor }) => {
           title="Add/Remove Link"
         >
           <LinkIcon fontSize="small" />
+        </Button>
+        <Button
+          onClick={() => {
+            const faultId = window.prompt('Enter Fault ID number (e.g., 4767):');
+            if (faultId) {
+              const faultNumber = parseInt(faultId);
+              if (!isNaN(faultNumber)) {
+                editor
+                  .chain()
+                  .focus()
+                  .insertContent(`<a href="#fault-${faultNumber}">Fault #${faultNumber}</a> `)
+                  .run();
+              } else {
+                alert('Please enter a valid fault ID number');
+              }
+            }
+          }}
+          title="Link to Another Fault"
+        >
+          <TagIcon fontSize="small" />
         </Button>
         <Button
           onClick={() => {

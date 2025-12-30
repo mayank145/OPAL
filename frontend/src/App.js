@@ -57,6 +57,14 @@ function App() {
     }
   };
 
+  // Expose handleViewFATS globally for internal fault links
+  useEffect(() => {
+    window.handleViewFATS = handleViewFATS;
+    return () => {
+      delete window.handleViewFATS;
+    };
+  }, [openTabs]);
+
   const handleCloseTab = (tabIndex, event) => {
     event.stopPropagation(); // Prevent tab switch on close
     
