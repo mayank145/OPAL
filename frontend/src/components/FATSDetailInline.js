@@ -186,14 +186,47 @@ const FATSDetailInline = ({ fatsId }) => {
 
   const handleCopyLink = () => {
     const link = `${window.location.origin}/#fault-${fatsId}`;
-    navigator.clipboard.writeText(link).then(() => {
-      // You could add a snackbar notification here
-      alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
-    }).catch(err => {
-      console.error('Failed to copy link:', err);
-      // Fallback: show the link so user can manually copy it
-      alert(`Copy this link:\n\n${link}`);
-    });
+    
+    // Try modern clipboard API first (requires HTTPS)
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(link).then(() => {
+        alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
+      }).catch(err => {
+        console.error('Failed to copy link:', err);
+        copyLinkFallback(link);
+      });
+    } else {
+      // Fallback for HTTP or older browsers
+      copyLinkFallback(link);
+    }
+  };
+
+  const copyLinkFallback = (link) => {
+    // Create a temporary textarea element
+    const textarea = document.createElement('textarea');
+    textarea.value = link;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    
+    try {
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      
+      if (successful) {
+        alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
+      } else {
+        // If even fallback fails, show link for manual copy
+        prompt('Copy this link (Ctrl+C or Cmd+C):', link);
+      }
+    } catch (err) {
+      document.body.removeChild(textarea);
+      // Last resort: show in prompt dialog
+      prompt('Copy this link (Ctrl+C or Cmd+C):', link);
+    }
   };
 
   const handlePrintImage = () => {
