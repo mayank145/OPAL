@@ -215,8 +215,13 @@ const FATSDetailInline = ({ fatsId }) => {
   };
 
   const handleEdit = () => {
+    // Get the current operator (person editing the fault)
+    // Use the operator from the current FATS entry as the person editing
+    const currentOperator = fats.operator || 'Unknown User';
+    
     // Initialize form with current FATS data
     // Strip HTML from description fields
+    // Automatically set "Assigned to" to the current operator/editor
     setEditFormData({
       issue: fats.issue || '',
       idescribe: stripHtml(fats.idescribe) || '',
@@ -224,7 +229,7 @@ const FATSDetailInline = ({ fatsId }) => {
       sdescribe: stripHtml(fats.sdescribe) || '',
       section: fats.section || '',
       status: fats.status || 'Active',
-      assigned_to: fats.assigned_to || '',
+      assigned_to: currentOperator, // Automatically set to current operator
     });
     setEditError(null);
     setEditDialogOpen(true);
@@ -1176,12 +1181,20 @@ const FATSDetailInline = ({ fatsId }) => {
 
             {/* Assigned To */}
             <TextField
-              label="Assigned To"
+              label="Assigned To (Current Editor)"
               value={editFormData.assigned_to || ''}
               onChange={(e) => handleEditChange('assigned_to', e.target.value)}
               fullWidth
               variant="outlined"
-              helperText="Person assigned to resolve this fault"
+              helperText="Automatically set to the person editing this fault (you can modify if needed)"
+              InputProps={{
+                readOnly: false,
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: 'rgba(25, 118, 210, 0.04)', // Light blue background to indicate auto-filled
+                }
+              }}
             />
           </Box>
         </DialogContent>
