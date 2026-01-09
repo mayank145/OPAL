@@ -215,13 +215,8 @@ const FATSDetailInline = ({ fatsId }) => {
   };
 
   const handleEdit = () => {
-    // Get the current operator (person editing the fault)
-    // Use the operator from the current FATS entry as the person editing
-    const currentOperator = fats.operator || 'Unknown User';
-    
     // Initialize form with current FATS data
     // Strip HTML from description fields
-    // Automatically set "Assigned to" to the current operator/editor
     setEditFormData({
       issue: fats.issue || '',
       idescribe: stripHtml(fats.idescribe) || '',
@@ -229,7 +224,6 @@ const FATSDetailInline = ({ fatsId }) => {
       sdescribe: stripHtml(fats.sdescribe) || '',
       section: fats.section || '',
       status: fats.status || 'Active',
-      assigned_to: currentOperator, // Automatically set to current operator
     });
     setEditError(null);
     setEditDialogOpen(true);
@@ -268,6 +262,8 @@ const FATSDetailInline = ({ fatsId }) => {
         // Convert plain text descriptions back to HTML
         idescribe: textToHtml(editFormData.idescribe),
         sdescribe: textToHtml(editFormData.sdescribe),
+        // Automatically set assigned_to to the current operator (editor)
+        assigned_to: fats.operator || 'Unknown User',
       };
       
       // Call the update API
@@ -1091,7 +1087,12 @@ const FATSDetailInline = ({ fatsId }) => {
       >
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="h6">Edit Fault #{fatsId}</Typography>
+            <Box>
+              <Typography variant="h6">Edit Fault #{fatsId}</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Editor: {fats?.operator || 'Unknown User'}
+              </Typography>
+            </Box>
             <IconButton onClick={handleEditClose} size="small">
               <CloseIcon />
             </IconButton>
@@ -1178,24 +1179,6 @@ const FATSDetailInline = ({ fatsId }) => {
                 <MenuItem value="Canceled">Canceled</MenuItem>
               </Select>
             </FormControl>
-
-            {/* Assigned To */}
-            <TextField
-              label="Assigned To (Current Editor)"
-              value={editFormData.assigned_to || ''}
-              onChange={(e) => handleEditChange('assigned_to', e.target.value)}
-              fullWidth
-              variant="outlined"
-              helperText="Automatically set to the person editing this fault (you can modify if needed)"
-              InputProps={{
-                readOnly: false,
-              }}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  backgroundColor: 'rgba(25, 118, 210, 0.04)', // Light blue background to indicate auto-filled
-                }
-              }}
-            />
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
