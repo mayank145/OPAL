@@ -58,12 +58,14 @@ const FATSDetailInline = ({ fatsId }) => {
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState(null);
   const [sections, setSections] = useState([]);
+  const [staff, setStaff] = useState([]); // Staff/operator list
 
   useEffect(() => {
     loadFATSDetail();
     loadImages();
     loadComments();
     loadSections();
+    loadStaff();
   }, [fatsId]);
 
   // Handle clicks on internal fault links
@@ -136,6 +138,16 @@ const FATSDetailInline = ({ fatsId }) => {
     } catch (err) {
       console.error('Error loading sections:', err);
       setSections([]);
+    }
+  };
+
+  const loadStaff = async () => {
+    try {
+      const staffData = await referenceAPI.getStaff();
+      setStaff(staffData || []);
+    } catch (err) {
+      console.error('Error loading staff:', err);
+      setStaff([]);
     }
   };
 
@@ -224,6 +236,7 @@ const FATSDetailInline = ({ fatsId }) => {
       sdescribe: stripHtml(fats.sdescribe) || '',
       section: fats.section || '',
       status: fats.status || 'Active',
+      operator: fats.operator || '', // Current operator/editor
     });
     setEditError(null);
     setEditDialogOpen(true);
@@ -262,8 +275,8 @@ const FATSDetailInline = ({ fatsId }) => {
         // Convert plain text descriptions back to HTML
         idescribe: textToHtml(editFormData.idescribe),
         sdescribe: textToHtml(editFormData.sdescribe),
-        // Automatically set assigned_to to the current operator (editor)
-        assigned_to: fats.operator || 'Unknown User',
+        // Set assigned_to to the selected operator (editor)
+        assigned_to: editFormData.operator || fats.operator || 'Unknown User',
       };
       
       // Call the update API
@@ -1090,7 +1103,7 @@ const FATSDetailInline = ({ fatsId }) => {
             <Box>
               <Typography variant="h6">Edit Fault #{fatsId}</Typography>
               <Typography variant="caption" color="text.secondary">
-                Editor: {fats?.operator || 'Unknown User'}
+                Current Editor: {editFormData.operator || fats?.operator || 'Not Set'}
               </Typography>
             </Box>
             <IconButton onClick={handleEditClose} size="small">
@@ -1177,6 +1190,25 @@ const FATSDetailInline = ({ fatsId }) => {
               >
                 <MenuItem value="Active">Active</MenuItem>
                 <MenuItem value="Canceled">Canceled</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Editor */}
+            <FormControl fullWidth>
+              <InputLabel>Editor</InputLabel>
+              <Select
+                value={editFormData.operator || ''}
+                onChange={(e) => handleEditChange('operator', e.target.value)}
+                label="Editor"
+              >
+                <MenuItem value="">
+                  <em>Select Editor</em>
+                </MenuItem>
+                {staff.map((person) => (
+                  <MenuItem key={person} value={person}>
+                    {person}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Box>
