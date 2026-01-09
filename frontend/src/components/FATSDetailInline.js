@@ -16,6 +16,11 @@ import {
   DialogActions,
   IconButton,
   Button,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { 
   Close as CloseIcon,
@@ -29,7 +34,7 @@ import {
   Edit as EditIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
-import { fatsAPI } from '../services/api';
+import { fatsAPI, referenceAPI } from '../services/api';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -46,11 +51,19 @@ const FATSDetailInline = ({ fatsId }) => {
   const [imageToDelete, setImageToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const imageContainerRef = useRef(null);
+  
+  // Edit dialog states
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState({});
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [sections, setSections] = useState([]);
 
   useEffect(() => {
     loadFATSDetail();
     loadImages();
     loadComments();
+    loadSections();
   }, [fatsId]);
 
   // Handle clicks on internal fault links
@@ -113,6 +126,16 @@ const FATSDetailInline = ({ fatsId }) => {
     } catch (err) {
       console.error('Error loading comments:', err);
       setComments([]);
+    }
+  };
+
+  const loadSections = async () => {
+    try {
+      const sectionsData = await referenceAPI.getSections();
+      setSections(sectionsData || []);
+    } catch (err) {
+      console.error('Error loading sections:', err);
+      setSections([]);
     }
   };
 
@@ -182,15 +205,55 @@ const FATSDetailInline = ({ fatsId }) => {
   };
 
   const handleEdit = () => {
-    // Trigger edit mode - you can implement this by:
-    // 1. Opening an edit dialog/modal
-    // 2. Navigating to an edit page
-    // 3. Enabling inline editing
-    // For now, we'll pass the edit event to parent if available
-    if (window.handleEditFATS) {
-      window.handleEditFATS(fatsId);
-    } else {
-      alert(`Edit functionality for Fault #${fatsId} - To be implemented`);
+    // Initialize form with current FATS data
+    setEditFormData({
+      issue: fats.issue || '',
+      idescribe: fats.idescribe || '',
+      solution: fats.solution || '',
+      sdescribe: fats.sdescribe || '',
+      section: fats.section || '',
+      status: fats.status || 'Active',
+      assigned_to: fats.assigned_to || '',
+    });
+    setEditError(null);
+    setEditDialogOpen(true);
+  };
+
+  const handleEditClose = () => {
+    setEditDialogOpen(false);
+    setEditFormData({});
+    setEditError(null);
+  };
+
+  const handleEditChange = (field, value) => {
+    setEditFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleEditSave = async () => {
+    try {
+      setEditLoading(true);
+      setEditError(null);
+      
+      // Call the update API
+      await fatsAPI.update(fatsId, editFormData);
+      
+      // Reload the FATS detail
+      await loadFATSDetail();
+      
+      // Close the dialog
+      setEditDialogOpen(false);
+      setEditFormData({});
+      
+      // Show success message
+      alert(`Fault #${fatsId} updated successfully!`);
+    } catch (err) {
+      console.error('Error updating FATS:', err);
+      setEditError(err.response?.data?.detail || err.message || 'Failed to update fault');
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -982,6 +1045,130 @@ const FATSDetailInline = ({ fatsId }) => {
             startIcon={<DeleteIcon />}
           >
             Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={handleEditClose}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="h6">Edit Fault #{fatsId}</Typography>
+            <IconButton onClick={handleEditClose} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {editError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {editError}
+            </Alert>
+          )}
+          
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            {/* Issue */}
+            <TextField
+              label="Issue"
+              value={editFormData.issue || ''}
+              onChange={(e) => handleEditChange('issue', e.target.value)}
+              fullWidth
+              variant="outlined"
+            />
+
+            {/* Issue Description */}
+            <TextField
+              label="Issue Description"
+              value={editFormData.idescribe || ''}
+              onChange={(e) => handleEditChange('idescribe', e.target.value)}
+              fullWidth
+              multiline
+              rows={4}
+              variant="outlined"
+              helperText="Detailed description of the issue"
+            />
+
+            {/* Solution */}
+            <TextField
+              label="Solution"
+              value={editFormData.solution || ''}
+              onChange={(e) => handleEditChange('solution', e.target.value)}
+              fullWidth
+              variant="outlined"
+            />
+
+            {/* Solution Description */}
+            <TextField
+              label="Solution Description"
+              value={editFormData.sdescribe || ''}
+              onChange={(e) => handleEditChange('sdescribe', e.target.value)}
+              fullWidth
+              multiline
+              rows={4}
+              variant="outlined"
+              helperText="Detailed description of the solution"
+            />
+
+            {/* Section */}
+            <FormControl fullWidth>
+              <InputLabel>Section</InputLabel>
+              <Select
+                value={editFormData.section || ''}
+                onChange={(e) => handleEditChange('section', e.target.value)}
+                label="Section"
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {sections.map((section) => (
+                  <MenuItem key={section} value={section}>
+                    {section}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {/* Status */}
+            <FormControl fullWidth>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={editFormData.status || 'Active'}
+                onChange={(e) => handleEditChange('status', e.target.value)}
+                label="Status"
+              >
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Canceled">Canceled</MenuItem>
+              </Select>
+            </FormControl>
+
+            {/* Assigned To */}
+            <TextField
+              label="Assigned To"
+              value={editFormData.assigned_to || ''}
+              onChange={(e) => handleEditChange('assigned_to', e.target.value)}
+              fullWidth
+              variant="outlined"
+              helperText="Person assigned to resolve this fault"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={handleEditClose} color="inherit" disabled={editLoading}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleEditSave} 
+            variant="contained" 
+            color="primary"
+            disabled={editLoading}
+            startIcon={editLoading ? <CircularProgress size={20} /> : <EditIcon />}
+          >
+            {editLoading ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>
