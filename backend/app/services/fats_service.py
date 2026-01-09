@@ -107,7 +107,15 @@ class FATSService:
             if search and search.strip() and len(search.strip()) >= 2:
                 search_trimmed = search.strip()
                 search_pattern = f"%{search_trimmed}%"
-                query = query.where(FATSEntry.issue.ilike(search_pattern))
+                # Search across multiple columns: issue, idescribe, solution, sdescribe
+                query = query.where(
+                    or_(
+                        FATSEntry.issue.ilike(search_pattern),
+                        FATSEntry.idescribe.ilike(search_pattern),
+                        FATSEntry.solution.ilike(search_pattern),
+                        FATSEntry.sdescribe.ilike(search_pattern)
+                    )
+                )
             
             if section and section.strip():
                 query = query.where(FATSEntry.section == section.strip())
