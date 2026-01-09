@@ -32,6 +32,7 @@ import {
   Delete as DeleteIcon,
   Share as ShareIcon,
   Edit as EditIcon,
+  Link as LinkIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
 import { fatsAPI, referenceAPI } from '../services/api';
@@ -1129,16 +1130,40 @@ const FATSDetailInline = ({ fatsId }) => {
             />
 
             {/* Issue Description */}
-            <TextField
-              label="Issue Description"
-              value={editFormData.idescribe || ''}
-              onChange={(e) => handleEditChange('idescribe', e.target.value)}
-              fullWidth
-              multiline
-              rows={4}
-              variant="outlined"
-              helperText="Detailed description of the issue"
-            />
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Issue Description
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<LinkIcon />}
+                  onClick={() => {
+                    const url = window.prompt('Enter URL (e.g., https://example.com):');
+                    if (url) {
+                      const linkText = window.prompt('Enter link text:', url);
+                      if (linkText) {
+                        const link = `<a href="${url}" target="_blank">${linkText}</a>`;
+                        const currentText = editFormData.idescribe || '';
+                        handleEditChange('idescribe', currentText + (currentText ? ' ' : '') + link);
+                      }
+                    }
+                  }}
+                >
+                  Insert Link
+                </Button>
+              </Box>
+              <TextField
+                value={editFormData.idescribe || ''}
+                onChange={(e) => handleEditChange('idescribe', e.target.value)}
+                fullWidth
+                multiline
+                rows={4}
+                variant="outlined"
+                helperText="Detailed description of the issue. Use 'Insert Link' button to add hyperlinks."
+              />
+            </Box>
 
             {/* Solution */}
             <TextField
@@ -1150,16 +1175,40 @@ const FATSDetailInline = ({ fatsId }) => {
             />
 
             {/* Solution Description */}
-            <TextField
-              label="Solution Description"
-              value={editFormData.sdescribe || ''}
-              onChange={(e) => handleEditChange('sdescribe', e.target.value)}
-              fullWidth
-              multiline
-              rows={4}
-              variant="outlined"
-              helperText="Detailed description of the solution"
-            />
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary">
+                  Solution Description
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<LinkIcon />}
+                  onClick={() => {
+                    const url = window.prompt('Enter URL (e.g., https://example.com):');
+                    if (url) {
+                      const linkText = window.prompt('Enter link text:', url);
+                      if (linkText) {
+                        const link = `<a href="${url}" target="_blank">${linkText}</a>`;
+                        const currentText = editFormData.sdescribe || '';
+                        handleEditChange('sdescribe', currentText + (currentText ? ' ' : '') + link);
+                      }
+                    }
+                  }}
+                >
+                  Insert Link
+                </Button>
+              </Box>
+              <TextField
+                value={editFormData.sdescribe || ''}
+                onChange={(e) => handleEditChange('sdescribe', e.target.value)}
+                fullWidth
+                multiline
+                rows={4}
+                variant="outlined"
+                helperText="Detailed description of the solution. Use 'Insert Link' button to add hyperlinks."
+              />
+            </Box>
 
             {/* Section */}
             <FormControl fullWidth>

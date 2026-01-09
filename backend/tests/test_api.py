@@ -29,3 +29,4 @@ def test_get_staff():
     response = client.get("/api/v1/reference/staff")
     assert response.status_code in [200, 500]  # 500 if DB not connected in CI
 
+
