@@ -186,7 +186,18 @@ const FATSDetailInline = ({ fatsId }) => {
 
   const sanitizeHTML = (html) => {
     if (!html) return '';
-    return DOMPurify.sanitize(html, {
+    
+    // First, auto-convert plain URLs to clickable links
+    let processed = html;
+    
+    // Match URLs that are not already in <a> tags
+    const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
+    processed = processed.replace(urlRegex, (match, url) => {
+      // Simple check: if the match is already inside an href attribute, don't replace
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+    });
+    
+    return DOMPurify.sanitize(processed, {
       ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div'],
       ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style'],
       ALLOWED_STYLES: {
