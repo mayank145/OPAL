@@ -343,31 +343,11 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
           </Box>
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-          <Chip 
-            label={`Total: ${fatsList.length}`} 
-            color="primary" 
-          />
-          {activeSearchTerm && (
-            <Chip 
-              label={`Search: "${activeSearchTerm}"`} 
-              color="secondary" 
-              variant="outlined"
-              onDelete={() => {
-                setSearchTerm('');
-                setActiveSearchTerm('');
-              }}
-            />
-          )}
-          {sectionFilter && (
-            <Chip 
-              label={`Section: ${sectionFilter}`} 
-              color="info" 
-              variant="outlined"
-              onDelete={() => setSectionFilter('')}
-            />
-          )}
-        </Box>
+        {statistics && (
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+            <Chip label={`Total: ${statistics.total_fats}`} color="primary" />
+          </Box>
+        )}
 
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
           <TextField
