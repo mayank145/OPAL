@@ -227,6 +227,26 @@ const FATSDetailInline = ({ fatsId }) => {
     return tmp.textContent || tmp.innerText || '';
   };
 
+  // Helper to escape HTML attributes (for URLs with special characters)
+  const escapeHtmlAttr = (str) => {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
+
+  // Helper to escape HTML content
+  const escapeHtmlContent = (str) => {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  };
+
   const handleEdit = () => {
     // Initialize form with current FATS data
     // Strip HTML from description fields
@@ -1180,7 +1200,10 @@ const FATSDetailInline = ({ fatsId }) => {
                     if (url) {
                       const linkText = window.prompt('Enter link text:', url);
                       if (linkText) {
-                        const link = `<a href="${url}" target="_blank">${linkText}</a>`;
+                        // Properly escape URL and text to handle special characters
+                        const escapedUrl = escapeHtmlAttr(url.trim());
+                        const escapedText = escapeHtmlContent(linkText.trim());
+                        const link = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedText}</a>`;
                         const currentText = editFormData.idescribe || '';
                         handleEditChange('idescribe', currentText + (currentText ? ' ' : '') + link);
                       }
@@ -1225,7 +1248,10 @@ const FATSDetailInline = ({ fatsId }) => {
                     if (url) {
                       const linkText = window.prompt('Enter link text:', url);
                       if (linkText) {
-                        const link = `<a href="${url}" target="_blank">${linkText}</a>`;
+                        // Properly escape URL and text to handle special characters
+                        const escapedUrl = escapeHtmlAttr(url.trim());
+                        const escapedText = escapeHtmlContent(linkText.trim());
+                        const link = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedText}</a>`;
                         const currentText = editFormData.sdescribe || '';
                         handleEditChange('sdescribe', currentText + (currentText ? ' ' : '') + link);
                       }
