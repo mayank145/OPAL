@@ -93,37 +93,42 @@ class FATSService:
         section: Optional[str] = None,
         status: Optional[str] = None
     ) -> List[FATSEntry]:
-        """Get all FATS entries with filtering - optimized for performance"""
-        # Limit maximum results to prevent timeout
-        limit = min(limit, 10000)  # Allow up to 10000 for full list views
+        """Get all FATS entries with filtering - optimized with database indexes"""
+        # Reasonable limits for pagination
+        limit = min(limit, 1000)  # Allow up to 1000 results
         skip = min(skip, 5000)  # Cap skip to prevent deep pagination
         
         try:
-            # Use ORM query but optimized - select only needed columns
             # Start with base query
             query = select(FATSEntry)
             
-            # Apply filters only if provided and not empty
+            # Apply search filter if provided
             if search and search.strip() and len(search.strip()) >= 2:
                 search_trimmed = search.strip()
                 search_pattern = f"%{search_trimmed}%"
-                # Search across multiple columns: issue, idescribe, solution, sdescribe
+                
+                # Search across all 4 fields - now fast with database indexes!
+                # issue, solution, operator have B-tree indexes (very fast)
+                # idescribe, sdescribe work reasonably fast even without FULLTEXT indexes
                 query = query.where(
                     or_(
                         FATSEntry.issue.ilike(search_pattern),
-                        FATSEntry.idescribe.ilike(search_pattern),
                         FATSEntry.solution.ilike(search_pattern),
+                        FATSEntry.operator.ilike(search_pattern),
+                        FATSEntry.idescribe.ilike(search_pattern),
                         FATSEntry.sdescribe.ilike(search_pattern)
                     )
                 )
             
+            # Apply section filter (uses idx_fault_section index)
             if section and section.strip():
                 query = query.where(FATSEntry.section == section.strip())
             
+            # Apply status filter (uses idx_fault_status index)
             if status and status.strip():
                 query = query.where(FATSEntry.status == status.strip())
             
-            # Order by idno descending (primary key, fastest)
+            # Order by idno descending (uses PRIMARY KEY index - very fast)
             query = query.order_by(FATSEntry.idno.desc())
             
             # Apply pagination
