@@ -204,13 +204,24 @@ const FATSDetailInline = ({ fatsId }) => {
     }
   };
 
+  // Helper function to strip HTML tags and convert to plain text
+  const stripHtml = (html) => {
+    if (!html) return '';
+    // Create a temporary div element
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    // Get text content (this strips all HTML tags)
+    return tmp.textContent || tmp.innerText || '';
+  };
+
   const handleEdit = () => {
     // Initialize form with current FATS data
+    // Strip HTML from description fields
     setEditFormData({
       issue: fats.issue || '',
-      idescribe: fats.idescribe || '',
+      idescribe: stripHtml(fats.idescribe) || '',
       solution: fats.solution || '',
-      sdescribe: fats.sdescribe || '',
+      sdescribe: stripHtml(fats.sdescribe) || '',
       section: fats.section || '',
       status: fats.status || 'Active',
       assigned_to: fats.assigned_to || '',
@@ -232,13 +243,30 @@ const FATSDetailInline = ({ fatsId }) => {
     }));
   };
 
+  // Helper function to convert plain text to HTML
+  const textToHtml = (text) => {
+    if (!text) return '';
+    // Split by newlines and wrap each line in <p> tags
+    const lines = text.split('\n').filter(line => line.trim());
+    if (lines.length === 0) return '<p></p>';
+    return lines.map(line => `<p>${line}</p>`).join('\n');
+  };
+
   const handleEditSave = async () => {
     try {
       setEditLoading(true);
       setEditError(null);
       
+      // Prepare data with text converted back to HTML format
+      const dataToSave = {
+        ...editFormData,
+        // Convert plain text descriptions back to HTML
+        idescribe: textToHtml(editFormData.idescribe),
+        sdescribe: textToHtml(editFormData.sdescribe),
+      };
+      
       // Call the update API
-      await fatsAPI.update(fatsId, editFormData);
+      await fatsAPI.update(fatsId, dataToSave);
       
       // Reload the FATS detail
       await loadFATSDetail();
