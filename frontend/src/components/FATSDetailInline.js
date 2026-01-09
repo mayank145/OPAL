@@ -588,6 +588,7 @@ const FATSDetailInline = ({ fatsId }) => {
                 color: '#1976d2', 
                 textDecoration: 'underline', 
                 cursor: 'pointer',
+                pointerEvents: 'auto',
                 '&:hover': { color: '#115293' },
                 '&[href^="#fault-"]': {
                   color: '#d32f2f',
@@ -607,6 +608,23 @@ const FATSDetailInline = ({ fatsId }) => {
               '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
+            }}
+            onClick={(e) => {
+              // Handle link clicks
+              if (e.target.tagName === 'A') {
+                const href = e.target.getAttribute('href');
+                if (href && href.startsWith('#fault-')) {
+                  // Internal fault link - navigate within app
+                  e.preventDefault();
+                  const faultId = href.replace('#fault-', '');
+                  window.location.hash = href;
+                  window.location.reload();
+                } else if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                  // External link - open in new tab
+                  e.preventDefault();
+                  window.open(href, '_blank', 'noopener,noreferrer');
+                }
+              }
             }}
             dangerouslySetInnerHTML={{ 
               __html: sanitizeHTML(fats.idescribe) || '<p style="color: #999;">No issue description provided</p>' 
@@ -652,6 +670,7 @@ const FATSDetailInline = ({ fatsId }) => {
                 color: '#1976d2', 
                 textDecoration: 'underline', 
                 cursor: 'pointer',
+                pointerEvents: 'auto',
                 '&:hover': { color: '#115293' },
                 '&[href^="#fault-"]': {
                   color: '#d32f2f',
@@ -692,6 +711,23 @@ const FATSDetailInline = ({ fatsId }) => {
                 color: '#666',
                 fontStyle: 'italic'
               },
+            }}
+            onClick={(e) => {
+              // Handle link clicks
+              if (e.target.tagName === 'A') {
+                const href = e.target.getAttribute('href');
+                if (href && href.startsWith('#fault-')) {
+                  // Internal fault link - navigate within app
+                  e.preventDefault();
+                  const faultId = href.replace('#fault-', '');
+                  window.location.hash = href;
+                  window.location.reload();
+                } else if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                  // External link - open in new tab
+                  e.preventDefault();
+                  window.open(href, '_blank', 'noopener,noreferrer');
+                }
+              }
             }}
             dangerouslySetInnerHTML={{ 
               __html: sanitizeHTML(fats.sdescribe) || '<p style="color: #999;">No solution description provided</p>' 
