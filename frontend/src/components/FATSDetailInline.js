@@ -513,7 +513,7 @@ const FATSDetailInline = ({ fatsId }) => {
           <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
             <Button
               variant="contained"
-              color="warning"
+              color="primary"
               startIcon={<EditIcon />}
               onClick={handleEdit}
               size="small"
