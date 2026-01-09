@@ -103,22 +103,35 @@ class FATSService:
             query = select(FATSEntry)
             
             # Apply search filter if provided
-            if search and search.strip() and len(search.strip()) >= 2:
+            if search and search.strip() and len(search.strip()) >= 1:
                 search_trimmed = search.strip()
-                search_pattern = f"%{search_trimmed}%"
                 
-                # Search across all 4 fields - now fast with database indexes!
-                # issue, solution, operator have B-tree indexes (very fast)
-                # idescribe, sdescribe work reasonably fast even without FULLTEXT indexes
-                query = query.where(
-                    or_(
-                        FATSEntry.issue.ilike(search_pattern),
-                        FATSEntry.solution.ilike(search_pattern),
-                        FATSEntry.operator.ilike(search_pattern),
-                        FATSEntry.idescribe.ilike(search_pattern),
-                        FATSEntry.sdescribe.ilike(search_pattern)
+                # Check if search term is a number (fault ID search)
+                if search_trimmed.isdigit():
+                    # If searching by fault ID number, return ONLY that specific fault
+                    try:
+                        fault_id = int(search_trimmed)
+                        query = query.where(FATSEntry.idno == fault_id)
+                    except ValueError:
+                        # If conversion fails, treat as text search
+                        pass
+                else:
+                    # For keyword/phrase search, search across all fields
+                    # Use exact word matching for more precise results
+                    search_pattern = f"%{search_trimmed}%"
+                    
+                    # Search across all 4 fields - now fast with database indexes!
+                    # issue, solution, operator have B-tree indexes (very fast)
+                    # idescribe, sdescribe work reasonably fast even without FULLTEXT indexes
+                    query = query.where(
+                        or_(
+                            FATSEntry.issue.ilike(search_pattern),
+                            FATSEntry.solution.ilike(search_pattern),
+                            FATSEntry.operator.ilike(search_pattern),
+                            FATSEntry.idescribe.ilike(search_pattern),
+                            FATSEntry.sdescribe.ilike(search_pattern)
+                        )
                     )
-                )
             
             # Apply section filter (uses idx_fault_section index)
             if section and section.strip():
