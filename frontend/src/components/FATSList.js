@@ -68,17 +68,17 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       let results;
       
       if (isIdSearch) {
-        // Use backend searchByIdno for ID searches (searches entire database)
-        console.log('🔢 Searching by ID in entire database:', activeSearchTerm.trim());
-        results = await fatsAPI.searchByIdno(activeSearchTerm.trim());
+        // Use standard search endpoint - backend now handles ID search automatically
+        console.log('🔢 Searching by fault ID:', activeSearchTerm.trim());
         
-        // Apply section filter if selected
-        if (sectionFilter && results) {
-          results = results.filter(fault => 
-            fault.section === sectionFilter || fault.section2 === sectionFilter
-          );
-          console.log('📂 Filtered by section:', results.length, 'results');
-        }
+        const params = {
+          search: activeSearchTerm.trim(),
+          section: sectionFilter || undefined,
+          limit: 1, // ID search returns only 1 result
+        };
+        
+        results = await fatsAPI.getAll(params);
+        console.log('✅ ID search result:', results.length, 'fault(s)');
       } else if (activeSearchTerm && activeSearchTerm.trim()) {
         const searchTerm = activeSearchTerm.trim();
         
