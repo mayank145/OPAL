@@ -26,6 +26,7 @@ import {
   Print as PrintIcon,
   Delete as DeleteIcon,
   Share as ShareIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
 import { fatsAPI } from '../services/api';
@@ -177,6 +178,19 @@ const FATSDetailInline = ({ fatsId }) => {
       });
     } catch (e) {
       return dateString;
+    }
+  };
+
+  const handleEdit = () => {
+    // Trigger edit mode - you can implement this by:
+    // 1. Opening an edit dialog/modal
+    // 2. Navigating to an edit page
+    // 3. Enabling inline editing
+    // For now, we'll pass the edit event to parent if available
+    if (window.handleEditFATS) {
+      window.handleEditFATS(fatsId);
+    } else {
+      alert(`Edit functionality for Fault #${fatsId} - To be implemented`);
     }
   };
 
@@ -392,6 +406,15 @@ const FATSDetailInline = ({ fatsId }) => {
             />
           </Box>
           <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<EditIcon />}
+              onClick={handleEdit}
+              size="small"
+            >
+              Edit
+            </Button>
             <Button
               variant="outlined"
               color="primary"
