@@ -151,3 +151,4 @@ dmypy.json
 local_settings.py
 local_config.py
 
+opal_database_backup.sql
