@@ -16,11 +16,6 @@ import {
   DialogActions,
   IconButton,
   Button,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
 } from '@mui/material';
 import { 
   Close as CloseIcon,
@@ -30,16 +25,14 @@ import {
   ChevronRight as ChevronRightIcon,
   Print as PrintIcon,
   Delete as DeleteIcon,
-  Share as ShareIcon,
   Edit as EditIcon,
-  Link as LinkIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
-import { fatsAPI, referenceAPI } from '../services/api';
+import { fatsAPI } from '../services/api';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const FATSDetailInline = ({ fatsId }) => {
+const FATSDetailInline = ({ fatsId, onEdit }) => {
   const [fats, setFats] = useState(null);
   const [images, setImages] = useState([]);
   const [comments, setComments] = useState([]);
@@ -52,50 +45,11 @@ const FATSDetailInline = ({ fatsId }) => {
   const [imageToDelete, setImageToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
   const imageContainerRef = useRef(null);
-  
-  // Edit dialog states
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editFormData, setEditFormData] = useState({});
-  const [editLoading, setEditLoading] = useState(false);
-  const [editError, setEditError] = useState(null);
-  const [sections, setSections] = useState([]);
-  const [staff, setStaff] = useState([]); // Staff/operator list
 
   useEffect(() => {
     loadFATSDetail();
     loadImages();
     loadComments();
-    loadSections();
-    loadStaff();
-  }, [fatsId]);
-
-  // Handle clicks on internal fault links
-  useEffect(() => {
-    const handleLinkClick = (e) => {
-      const target = e.target.closest('a');
-      if (!target) return;
-      
-      const href = target.getAttribute('href');
-      
-      // Check if it's an internal fault link (#fault-XXXX)
-      if (href && href.startsWith('#fault-')) {
-        e.preventDefault();
-        e.stopPropagation();
-        const faultId = href.replace('#fault-', '');
-        const faultIdNum = parseInt(faultId);
-        
-        if (!isNaN(faultIdNum) && window.handleViewFATS) {
-          window.handleViewFATS(faultIdNum);
-        }
-      }
-    };
-
-    // Add event listener to the component
-    const container = document.getElementById(`fault-detail-${fatsId}`);
-    if (container) {
-      container.addEventListener('click', handleLinkClick);
-      return () => container.removeEventListener('click', handleLinkClick);
-    }
   }, [fatsId]);
 
   const loadFATSDetail = async () => {
@@ -129,26 +83,6 @@ const FATSDetailInline = ({ fatsId }) => {
     } catch (err) {
       console.error('Error loading comments:', err);
       setComments([]);
-    }
-  };
-
-  const loadSections = async () => {
-    try {
-      const sectionsData = await referenceAPI.getSections();
-      setSections(sectionsData || []);
-    } catch (err) {
-      console.error('Error loading sections:', err);
-      setSections([]);
-    }
-  };
-
-  const loadStaff = async () => {
-    try {
-      const staffData = await referenceAPI.getStaff();
-      setStaff(staffData || []);
-    } catch (err) {
-      console.error('Error loading staff:', err);
-      setStaff([]);
     }
   };
 
@@ -187,17 +121,16 @@ const FATSDetailInline = ({ fatsId }) => {
   const sanitizeHTML = (html) => {
     if (!html) return '';
     
-    // First, auto-convert plain URLs to clickable links
-    let processed = html;
-    
-    // Match URLs that are not already in <a> tags
-    const urlRegex = /(https?:\/\/[^\s<>"]+)/gi;
-    processed = processed.replace(urlRegex, (match, url) => {
-      // Simple check: if the match is already inside an href attribute, don't replace
-      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+    // Auto-convert plain text URLs to clickable links
+    // This regex matches URLs that are NOT already inside <a> tags
+    const urlRegex = /(?<!href=["'])(https?:\/\/[^\s<>"]+)(?![^<]*<\/a>)/g;
+    const htmlWithLinks = html.replace(urlRegex, (url) => {
+      // Clean up URL (remove trailing punctuation that might be part of sentence)
+      const cleanUrl = url.replace(/[.,;:!?)]+$/, '');
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer">${cleanUrl}</a>`;
     });
     
-    return DOMPurify.sanitize(processed, {
+    return DOMPurify.sanitize(htmlWithLinks, {
       ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div'],
       ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style'],
       ALLOWED_STYLES: {
@@ -228,156 +161,8 @@ const FATSDetailInline = ({ fatsId }) => {
     }
   };
 
-  // Helper function to strip HTML tags and convert to plain text
-  const stripHtml = (html) => {
-    if (!html) return '';
-    // Create a temporary div element
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    // Get text content (this strips all HTML tags)
-    return tmp.textContent || tmp.innerText || '';
-  };
-
-  // Helper to escape HTML attributes (for URLs with special characters)
-  const escapeHtmlAttr = (str) => {
-    if (!str) return '';
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-
-  // Helper to escape HTML content
-  const escapeHtmlContent = (str) => {
-    if (!str) return '';
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  };
-
-  const handleEdit = () => {
-    // Initialize form with current FATS data
-    // Strip HTML from description fields
-    setEditFormData({
-      issue: fats.issue || '',
-      idescribe: stripHtml(fats.idescribe) || '',
-      solution: fats.solution || '',
-      sdescribe: stripHtml(fats.sdescribe) || '',
-      section: fats.section || '',
-      status: fats.status || 'Active',
-      operator: fats.operator || '', // Current operator/editor
-    });
-    setEditError(null);
-    setEditDialogOpen(true);
-  };
-
-  const handleEditClose = () => {
-    setEditDialogOpen(false);
-    setEditFormData({});
-    setEditError(null);
-  };
-
-  const handleEditChange = (field, value) => {
-    setEditFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  // Helper function to convert plain text to HTML
-  const textToHtml = (text) => {
-    if (!text) return '';
-    // Split by newlines and wrap each line in <p> tags
-    const lines = text.split('\n').filter(line => line.trim());
-    if (lines.length === 0) return '<p></p>';
-    return lines.map(line => `<p>${line}</p>`).join('\n');
-  };
-
-  const handleEditSave = async () => {
-    try {
-      setEditLoading(true);
-      setEditError(null);
-      
-      // Prepare data with text converted back to HTML format
-      const dataToSave = {
-        ...editFormData,
-        // Convert plain text descriptions back to HTML
-        idescribe: textToHtml(editFormData.idescribe),
-        sdescribe: textToHtml(editFormData.sdescribe),
-        // Set assigned_to to the selected operator (editor)
-        assigned_to: editFormData.operator || fats.operator || 'Unknown User',
-      };
-      
-      // Call the update API
-      await fatsAPI.update(fatsId, dataToSave);
-      
-      // Reload the FATS detail
-      await loadFATSDetail();
-      
-      // Close the dialog
-      setEditDialogOpen(false);
-      setEditFormData({});
-      
-      // Show success message
-      alert(`Fault #${fatsId} updated successfully!`);
-    } catch (err) {
-      console.error('Error updating FATS:', err);
-      setEditError(err.response?.data?.detail || err.message || 'Failed to update fault');
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
   const handlePrint = () => {
     window.print();
-  };
-
-  const handleCopyLink = () => {
-    const link = `${window.location.origin}/#fault-${fatsId}`;
-    
-    // Try modern clipboard API first (requires HTTPS)
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(link).then(() => {
-        alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
-      }).catch(err => {
-        console.error('Failed to copy link:', err);
-        copyLinkFallback(link);
-      });
-    } else {
-      // Fallback for HTTP or older browsers
-      copyLinkFallback(link);
-    }
-  };
-
-  const copyLinkFallback = (link) => {
-    // Create a temporary textarea element
-    const textarea = document.createElement('textarea');
-    textarea.value = link;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    textarea.style.top = '0';
-    document.body.appendChild(textarea);
-    
-    try {
-      textarea.focus();
-      textarea.select();
-      const successful = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      
-      if (successful) {
-        alert(`Link copied to clipboard!\n\n${link}\n\nShare this link to open Fault #${fatsId} on any device.`);
-      } else {
-        // If even fallback fails, show link for manual copy
-        prompt('Copy this link (Ctrl+C or Cmd+C):', link);
-      }
-    } catch (err) {
-      document.body.removeChild(textarea);
-      // Last resort: show in prompt dialog
-      prompt('Copy this link (Ctrl+C or Cmd+C):', link);
-    }
   };
 
   const handlePrintImage = () => {
@@ -542,31 +327,26 @@ const FATSDetailInline = ({ fatsId }) => {
               size="small"
             />
           </Box>
-          <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
-            <Button
-              variant="contained"
-              color="primary"
-              startIcon={<EditIcon />}
-              onClick={handleEdit}
-              size="small"
-            >
-              Edit
-            </Button>
-            <Button
-              variant="outlined"
-              color="primary"
-              startIcon={<ShareIcon />}
-              onClick={handleCopyLink}
-              size="small"
-            >
-              Copy Link
-            </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {onEdit && (
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<EditIcon />}
+                onClick={() => onEdit(fats.idno)}
+                size="small"
+                sx={{ '@media print': { display: 'none' } }}
+              >
+                Edit
+              </Button>
+            )}
             <Button
               variant="contained"
               color="primary"
               startIcon={<PrintIcon />}
               onClick={handlePrint}
               size="small"
+              sx={{ '@media print': { display: 'none' } }}
             >
               Print
             </Button>
@@ -615,47 +395,10 @@ const FATSDetailInline = ({ fatsId }) => {
               '& strong, & b': { fontWeight: 'bold' },
               '& em, & i': { fontStyle: 'italic' },
               '& u': { textDecoration: 'underline' },
-              '& a': { 
-                color: '#1976d2', 
-                textDecoration: 'underline', 
-                cursor: 'pointer',
-                pointerEvents: 'auto',
-                '&:hover': { color: '#115293' },
-                '&[href^="#fault-"]': {
-                  color: '#d32f2f',
-                  fontWeight: 600,
-                  '&::before': {
-                    content: '"🔗 "',
-                    fontSize: '0.9em',
-                  },
-                  '&:hover': {
-                    color: '#b71c1c',
-                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
-                    padding: '2px 4px',
-                    borderRadius: '3px',
-                  }
-                },
-              },
+              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
               '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
-            }}
-            onClick={(e) => {
-              // Handle link clicks
-              if (e.target.tagName === 'A') {
-                const href = e.target.getAttribute('href');
-                if (href && href.startsWith('#fault-')) {
-                  // Internal fault link - navigate within app
-                  e.preventDefault();
-                  const faultId = href.replace('#fault-', '');
-                  window.location.hash = href;
-                  window.location.reload();
-                } else if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
-                  // External link - open in new tab
-                  e.preventDefault();
-                  window.open(href, '_blank', 'noopener,noreferrer');
-                }
-              }
             }}
             dangerouslySetInnerHTML={{ 
               __html: sanitizeHTML(fats.idescribe) || '<p style="color: #999;">No issue description provided</p>' 
@@ -697,27 +440,7 @@ const FATSDetailInline = ({ fatsId }) => {
               '& strong, & b': { fontWeight: 'bold' },
               '& em, & i': { fontStyle: 'italic' },
               '& u': { textDecoration: 'underline' },
-              '& a': { 
-                color: '#1976d2', 
-                textDecoration: 'underline', 
-                cursor: 'pointer',
-                pointerEvents: 'auto',
-                '&:hover': { color: '#115293' },
-                '&[href^="#fault-"]': {
-                  color: '#d32f2f',
-                  fontWeight: 600,
-                  '&::before': {
-                    content: '"🔗 "',
-                    fontSize: '0.9em',
-                  },
-                  '&:hover': {
-                    color: '#b71c1c',
-                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
-                    padding: '2px 4px',
-                    borderRadius: '3px',
-                  }
-                },
-              },
+              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
               '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
               '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
@@ -742,23 +465,6 @@ const FATSDetailInline = ({ fatsId }) => {
                 color: '#666',
                 fontStyle: 'italic'
               },
-            }}
-            onClick={(e) => {
-              // Handle link clicks
-              if (e.target.tagName === 'A') {
-                const href = e.target.getAttribute('href');
-                if (href && href.startsWith('#fault-')) {
-                  // Internal fault link - navigate within app
-                  e.preventDefault();
-                  const faultId = href.replace('#fault-', '');
-                  window.location.hash = href;
-                  window.location.reload();
-                } else if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
-                  // External link - open in new tab
-                  e.preventDefault();
-                  window.open(href, '_blank', 'noopener,noreferrer');
-                }
-              }
             }}
             dangerouslySetInnerHTML={{ 
               __html: sanitizeHTML(fats.sdescribe) || '<p style="color: #999;">No solution description provided</p>' 
@@ -1155,198 +861,6 @@ const FATSDetailInline = ({ fatsId }) => {
             startIcon={<DeleteIcon />}
           >
             Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit Dialog */}
-      <Dialog
-        open={editDialogOpen}
-        onClose={handleEditClose}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography variant="h6">Edit Fault #{fatsId}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Current Editor: {editFormData.operator || fats?.operator || 'Not Set'}
-              </Typography>
-            </Box>
-            <IconButton onClick={handleEditClose} size="small">
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent dividers>
-          {editError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {editError}
-            </Alert>
-          )}
-          
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-            {/* Issue */}
-            <TextField
-              label="Issue"
-              value={editFormData.issue || ''}
-              onChange={(e) => handleEditChange('issue', e.target.value)}
-              fullWidth
-              variant="outlined"
-            />
-
-            {/* Issue Description */}
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Issue Description
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<LinkIcon />}
-                  onClick={() => {
-                    const url = window.prompt('Enter URL (e.g., https://example.com):');
-                    if (url) {
-                      const linkText = window.prompt('Enter link text:', url);
-                      if (linkText) {
-                        // Properly escape URL and text to handle special characters
-                        const escapedUrl = escapeHtmlAttr(url.trim());
-                        const escapedText = escapeHtmlContent(linkText.trim());
-                        const link = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedText}</a>`;
-                        const currentText = editFormData.idescribe || '';
-                        handleEditChange('idescribe', currentText + (currentText ? ' ' : '') + link);
-                      }
-                    }
-                  }}
-                >
-                  Insert Link
-                </Button>
-              </Box>
-              <TextField
-                value={editFormData.idescribe || ''}
-                onChange={(e) => handleEditChange('idescribe', e.target.value)}
-                fullWidth
-                multiline
-                rows={4}
-                variant="outlined"
-                helperText="Detailed description of the issue. Use 'Insert Link' button to add hyperlinks."
-              />
-            </Box>
-
-            {/* Solution */}
-            <TextField
-              label="Solution"
-              value={editFormData.solution || ''}
-              onChange={(e) => handleEditChange('solution', e.target.value)}
-              fullWidth
-              variant="outlined"
-            />
-
-            {/* Solution Description */}
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  Solution Description
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<LinkIcon />}
-                  onClick={() => {
-                    const url = window.prompt('Enter URL (e.g., https://example.com):');
-                    if (url) {
-                      const linkText = window.prompt('Enter link text:', url);
-                      if (linkText) {
-                        // Properly escape URL and text to handle special characters
-                        const escapedUrl = escapeHtmlAttr(url.trim());
-                        const escapedText = escapeHtmlContent(linkText.trim());
-                        const link = `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedText}</a>`;
-                        const currentText = editFormData.sdescribe || '';
-                        handleEditChange('sdescribe', currentText + (currentText ? ' ' : '') + link);
-                      }
-                    }
-                  }}
-                >
-                  Insert Link
-                </Button>
-              </Box>
-              <TextField
-                value={editFormData.sdescribe || ''}
-                onChange={(e) => handleEditChange('sdescribe', e.target.value)}
-                fullWidth
-                multiline
-                rows={4}
-                variant="outlined"
-                helperText="Detailed description of the solution. Use 'Insert Link' button to add hyperlinks."
-              />
-            </Box>
-
-            {/* Section */}
-            <FormControl fullWidth>
-              <InputLabel>Section</InputLabel>
-              <Select
-                value={editFormData.section || ''}
-                onChange={(e) => handleEditChange('section', e.target.value)}
-                label="Section"
-              >
-                <MenuItem value="">
-                  <em>None</em>
-                </MenuItem>
-                {sections.map((section) => (
-                  <MenuItem key={section} value={section}>
-                    {section}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-
-            {/* Status */}
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select
-                value={editFormData.status || 'Active'}
-                onChange={(e) => handleEditChange('status', e.target.value)}
-                label="Status"
-              >
-                <MenuItem value="Active">Active</MenuItem>
-                <MenuItem value="Canceled">Canceled</MenuItem>
-              </Select>
-            </FormControl>
-
-            {/* Editor */}
-            <FormControl fullWidth>
-              <InputLabel>Editor</InputLabel>
-              <Select
-                value={editFormData.operator || ''}
-                onChange={(e) => handleEditChange('operator', e.target.value)}
-                label="Editor"
-              >
-                <MenuItem value="">
-                  <em>Select Editor</em>
-                </MenuItem>
-                {staff.map((person) => (
-                  <MenuItem key={person} value={person}>
-                    {person}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleEditClose} color="inherit" disabled={editLoading}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleEditSave} 
-            variant="contained" 
-            color="primary"
-            disabled={editLoading}
-            startIcon={editLoading ? <CircularProgress size={20} /> : <EditIcon />}
-          >
-            {editLoading ? 'Saving...' : 'Save Changes'}
           </Button>
         </DialogActions>
       </Dialog>

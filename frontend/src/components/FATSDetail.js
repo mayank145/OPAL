@@ -91,8 +91,12 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
       }),
       Link.configure({
         openOnClick: false,
+        autolink: true, // Automatically convert typed URLs to links
+        linkOnPaste: true, // Auto-linkify pasted URLs
         HTMLAttributes: {
           class: 'text-blue-600 underline',
+          target: '_blank',
+          rel: 'noopener noreferrer',
         },
         validate: href => {
           // Allow internal fault links (#fault-XXXX) or standard URLs
@@ -104,6 +108,26 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
     content: formData.idescribe || '',
     onUpdate: ({ editor }) => {
       setFormData((prev) => ({ ...prev, idescribe: editor.getHTML() }));
+    },
+    editorProps: {
+      handlePaste: (view, event, slice) => {
+        const text = event.clipboardData?.getData('text/plain');
+        if (text) {
+          // Check if the entire pasted text is a URL
+          const urlRegex = /^https?:\/\/[^\s]+$/;
+          if (urlRegex.test(text.trim())) {
+            // Insert as a link
+            const { state } = view;
+            const { tr } = state;
+            const link = state.schema.marks.link.create({ href: text.trim() });
+            const textNode = state.schema.text(text.trim(), [link]);
+            tr.replaceSelectionWith(textNode, false);
+            view.dispatch(tr);
+            return true; // Prevent default paste
+          }
+        }
+        return false; // Use default paste for non-URL text
+      },
     },
     editable: !isViewMode,
   });
@@ -124,8 +148,12 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
       }),
       Link.configure({
         openOnClick: false,
+        autolink: true, // Automatically convert pasted URLs to links
+        linkOnPaste: true, // Auto-linkify pasted URLs
         HTMLAttributes: {
           class: 'text-blue-600 underline',
+          target: '_blank',
+          rel: 'noopener noreferrer',
         },
         validate: href => {
           // Allow internal fault links (#fault-XXXX) or standard URLs
@@ -137,6 +165,26 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
     content: formData.sdescribe || '',
     onUpdate: ({ editor }) => {
       setFormData((prev) => ({ ...prev, sdescribe: editor.getHTML() }));
+    },
+    editorProps: {
+      handlePaste: (view, event, slice) => {
+        const text = event.clipboardData?.getData('text/plain');
+        if (text) {
+          // Check if the entire pasted text is a URL
+          const urlRegex = /^https?:\/\/[^\s]+$/;
+          if (urlRegex.test(text.trim())) {
+            // Insert as a link
+            const { state } = view;
+            const { tr } = state;
+            const link = state.schema.marks.link.create({ href: text.trim() });
+            const textNode = state.schema.text(text.trim(), [link]);
+            tr.replaceSelectionWith(textNode, false);
+            view.dispatch(tr);
+            return true; // Prevent default paste
+          }
+        }
+        return false; // Use default paste for non-URL text
+      },
     },
     editable: !isViewMode,
   });

@@ -29,6 +29,7 @@ async def list_fats(
     limit: int = Query(20, ge=1, le=10000, description="Max number of records to return"),
     search: Optional[str] = Query(None, description="Search term"),
     section: Optional[str] = Query(None, description="Filter by section"),
+    section2: Optional[str] = Query(None, description="Filter by section2"),
     status: Optional[str] = Query(None, description="Filter by status"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -42,6 +43,7 @@ async def list_fats(
             limit=limit,
             search=search,
             section=section,
+            section2=section2,
             status=status
         )
         return fats_entries

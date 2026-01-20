@@ -83,8 +83,6 @@ htmlcov/
 # Uploads (keep directory structure but ignore files)
 uploads/fats/*
 !uploads/fats/.gitkeep
-backend/uploads/fats/*
-!backend/uploads/fats/.gitkeep
 
 # OS
 .DS_Store

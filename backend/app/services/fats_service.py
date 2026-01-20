@@ -91,6 +91,7 @@ class FATSService:
         limit: int = 100,
         search: Optional[str] = None,
         section: Optional[str] = None,
+        section2: Optional[str] = None,
         status: Optional[str] = None
     ) -> List[FATSEntry]:
         """Get all FATS entries with filtering - optimized with database indexes"""
@@ -102,16 +103,35 @@ class FATSService:
             # Start with base query
             query = select(FATSEntry)
             
+            # Variable to track if we need custom ordering for ID search
+            is_id_search = False
+            fault_id_to_prioritize = None
+            
             # Apply search filter if provided
             if search and search.strip() and len(search.strip()) >= 1:
                 search_trimmed = search.strip()
                 
                 # Check if search term is a number (fault ID search)
                 if search_trimmed.isdigit():
-                    # If searching by fault ID number, return ONLY that specific fault
+                    # If searching by fault ID: show exact match first, then related faults
                     try:
                         fault_id = int(search_trimmed)
-                        query = query.where(FATSEntry.idno == fault_id)
+                        search_pattern = f"%{search_trimmed}%"
+                        
+                        # Search for exact ID match OR mentions in text fields
+                        query = query.where(
+                            or_(
+                                FATSEntry.idno == fault_id,  # Exact ID match
+                                FATSEntry.issue.ilike(search_pattern),  # ID mentioned in issue
+                                FATSEntry.solution.ilike(search_pattern),  # ID mentioned in solution
+                                FATSEntry.idescribe.ilike(search_pattern),  # ID mentioned in description
+                                FATSEntry.sdescribe.ilike(search_pattern)  # ID mentioned in solution description
+                            )
+                        )
+                        
+                        # Mark that we need to prioritize the exact ID match
+                        is_id_search = True
+                        fault_id_to_prioritize = fault_id
                     except ValueError:
                         # If conversion fails, treat as text search
                         pass
@@ -120,9 +140,7 @@ class FATSService:
                     # Use exact word matching for more precise results
                     search_pattern = f"%{search_trimmed}%"
                     
-                    # Search across all 4 fields - now fast with database indexes!
-                    # issue, solution, operator have B-tree indexes (very fast)
-                    # idescribe, sdescribe work reasonably fast even without FULLTEXT indexes
+                    # Search across all fields - now fast with database indexes!
                     query = query.where(
                         or_(
                             FATSEntry.issue.ilike(search_pattern),
@@ -133,16 +151,38 @@ class FATSService:
                         )
                     )
             
-            # Apply section filter (uses idx_fault_section index)
+            # Apply section filters with OR logic when both are provided
+            section_filters = []
             if section and section.strip():
-                query = query.where(FATSEntry.section == section.strip())
+                section_filters.append(FATSEntry.section == section.strip())
+            if section2 and section2.strip():
+                section_filters.append(FATSEntry.section2 == section2.strip())
+            
+            # If any section filters provided, apply them with OR logic
+            if section_filters:
+                if len(section_filters) == 1:
+                    query = query.where(section_filters[0])
+                else:
+                    # Both filters provided - use OR logic (match either section OR section2)
+                    query = query.where(or_(*section_filters))
             
             # Apply status filter (uses idx_fault_status index)
             if status and status.strip():
                 query = query.where(FATSEntry.status == status.strip())
             
-            # Order by idno descending (uses PRIMARY KEY index - very fast)
-            query = query.order_by(FATSEntry.idno.desc())
+            # Order by: exact ID match first (for ID searches), then by idno descending
+            if is_id_search and fault_id_to_prioritize:
+                # Prioritize exact ID match, then show other related faults
+                query = query.order_by(
+                    case(
+                        (FATSEntry.idno == fault_id_to_prioritize, 0),  # Exact match: priority 0 (first)
+                        else_=1  # Other matches: priority 1 (after)
+                    ),
+                    FATSEntry.idno.desc()  # Within each priority, order by ID descending
+                )
+            else:
+                # Default: order by idno descending (uses PRIMARY KEY index - very fast)
+                query = query.order_by(FATSEntry.idno.desc())
             
             # Apply pagination
             query = query.limit(limit).offset(skip)

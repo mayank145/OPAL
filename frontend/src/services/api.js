@@ -39,13 +39,14 @@ api.interceptors.response.use(
 export const fatsAPI = {
   // Get all FATS entries
   getAll: async (params = {}) => {
-    const { skip = 0, limit = 20, search, section, status } = params; // Reduced default limit to 20
+    const { skip = 0, limit = 20, search, section, section2, status } = params; // Reduced default limit to 20
     const queryParams = new URLSearchParams();
     if (skip) queryParams.append('skip', skip);
     if (limit) queryParams.append('limit', limit);
     // Only add search if it's a non-empty string
     if (search && search.trim()) queryParams.append('search', search.trim());
     if (section && section.trim()) queryParams.append('section', section);
+    if (section2 && section2.trim()) queryParams.append('section2', section2);
     if (status && status.trim()) queryParams.append('status', status);
     
     // Use longer timeout for list endpoint (20 seconds) - database query can be slow
@@ -168,9 +169,15 @@ export const fatsAPI = {
 
 // Reference Data API
 export const referenceAPI = {
-  // Get all sections (for section and section2 dropdowns)
+  // Get all sections (for section dropdown)
   getSections: async () => {
     const response = await api.get('/api/v1/reference/sections');
+    return response.data;
+  },
+  
+  // Get all sections2 (for section2 dropdown)
+  getSections2: async () => {
+    const response = await api.get('/api/v1/reference/sections2');
     return response.data;
   },
   

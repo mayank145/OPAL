@@ -43,6 +43,40 @@ async def get_sections(db: AsyncSession = Depends(get_db)):
         # Return default sections on error
         return ['.none', 'Telescope/Dome', 'Instruments/PFS', 'Dome/Environment']
 
+@router.get("/sections2", response_model=List[str])
+async def get_sections2(db: AsyncSession = Depends(get_db)):
+    """
+    Get all distinct section2 values from fault table
+    Used for section2 dropdown
+    """
+    try:
+        from app.models.fats_entry import FATSEntry
+        # Get distinct section2 values from the fault table
+        result = await db.execute(
+            select(FATSEntry.section2)
+            .distinct()
+            .where(FATSEntry.section2.isnot(None))
+            .where(FATSEntry.section2 != '')
+            .order_by(FATSEntry.section2)
+            .limit(200)  # Limit to prevent timeout
+        )
+        sections2 = [row[0] for row in result.all() if row[0]]  # Filter out None/empty values
+        # Always include .none as first option
+        if '.none' not in sections2:
+            sections2.insert(0, '.none')
+        elif sections2[0] != '.none':
+            sections2.remove('.none')
+            sections2.insert(0, '.none')
+        return sections2
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error fetching sections2: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
+        # Return default sections2 on error
+        return ['.none', 'Dome/Air Condition', 'TWS/TSC', 'Cars']
+
 @router.get("/staff", response_model=List[str])
 async def get_staff(db: AsyncSession = Depends(get_db)):
     """

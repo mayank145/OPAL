@@ -200,7 +200,8 @@ function App() {
               {/* Use lastUpdated as key to force re-render when comments are added */}
               <FATSDetailInline 
                 key={tab.lastUpdated || tab.id} 
-                fatsId={tab.fatsId} 
+                fatsId={tab.fatsId}
+                onEdit={handleEditFATS}
               />
             </Box>
           );
