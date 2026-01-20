@@ -265,6 +265,7 @@ function App() {
           mode={fatsDetailMode}
           onClose={() => setFatsDetailOpen(false)}
           onSave={handleFATSSave}
+          onFaultReferenceClick={handleViewFATS}
         />
 
         {/* Comment Dialog */}

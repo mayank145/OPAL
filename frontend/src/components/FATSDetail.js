@@ -39,7 +39,7 @@ import MenuBar from './MenuBar';
 // Get API base URL for constructing image URLs
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view' }) => {
+const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultReferenceClick }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [fats, setFats] = useState(null);

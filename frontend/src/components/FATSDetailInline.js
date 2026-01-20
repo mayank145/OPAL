@@ -7,7 +7,6 @@ import {
   Alert,
   Chip,
   Divider,
-  Grid,
   ImageList,
   ImageListItem,
   Dialog,
@@ -118,21 +117,46 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
     }
   }, [selectedImage, images, imageZoom]);
 
+  // Handle clicks on fault reference links
+  useEffect(() => {
+    const handleFaultLinkClick = (e) => {
+      const faultLink = e.target.closest('.fault-reference-link');
+      if (faultLink) {
+        e.preventDefault();
+        const faultId = faultLink.getAttribute('data-fault-id');
+        if (faultId && onEdit) {
+          // Open the referenced fault
+          onEdit(parseInt(faultId));
+        }
+      }
+    };
+
+    document.addEventListener('click', handleFaultLinkClick);
+    return () => document.removeEventListener('click', handleFaultLinkClick);
+  }, [onEdit]);
+
   const sanitizeHTML = (html) => {
     if (!html) return '';
     
     // Auto-convert plain text URLs to clickable links
     // This regex matches URLs that are NOT already inside <a> tags
     const urlRegex = /(?<!href=["'])(https?:\/\/[^\s<>"]+)(?![^<]*<\/a>)/g;
-    const htmlWithLinks = html.replace(urlRegex, (url) => {
+    let htmlWithLinks = html.replace(urlRegex, (url) => {
       // Clean up URL (remove trailing punctuation that might be part of sentence)
       const cleanUrl = url.replace(/[.,;:!?)]+$/, '');
       return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer">${cleanUrl}</a>`;
     });
     
+    // Convert internal fault reference links (#fault-XXXX) to functional links
+    // These are created by the "#" button in the editor
+    const faultLinkRegex = /<a\s+href="#fault-(\d+)"([^>]*)>(.*?)<\/a>/gi;
+    htmlWithLinks = htmlWithLinks.replace(faultLinkRegex, (match, faultId, attrs, text) => {
+      return `<a href="javascript:void(0)" data-fault-id="${faultId}" class="fault-reference-link" style="color: #1976d2; text-decoration: underline; cursor: pointer;"${attrs}>${text}</a>`;
+    });
+    
     return DOMPurify.sanitize(htmlWithLinks, {
       ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div'],
-      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style'],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'data-fault-id'],
       ALLOWED_STYLES: {
         '*': {
           'color': [/^#[0-9a-fA-F]{3,6}$/, /^rgb\(/, /^rgba\(/],
@@ -140,6 +164,7 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
           'font-weight': [/^bold$/, /^normal$/, /^\d{3}$/],
           'font-style': [/^italic$/, /^normal$/],
           'text-decoration': [/^underline$/, /^line-through$/],
+          'cursor': [/^pointer$/],
         }
       }
     });
