@@ -47,13 +47,14 @@ function App() {
     const existingTabIndex = openTabs.findIndex(tab => tab.id === `fats-${idno}`);
     
     if (existingTabIndex !== -1) {
-      // Switch to existing tab
-      setActiveTab(existingTabIndex);
+      // Tab exists - do nothing, user stays on current tab
+      // User can manually click the tab if they want to view it
+      return;
     } else {
-      // Create new tab
+      // Create new tab in background - don't switch to it
       const newTab = { id: `fats-${idno}`, label: `Fault ${idno}`, fatsId: idno };
       setOpenTabs([...openTabs, newTab]);
-      setActiveTab(openTabs.length); // Switch to new tab
+      // Don't call setActiveTab - user stays on current tab
     }
   };
 
@@ -202,6 +203,7 @@ function App() {
                 key={tab.lastUpdated || tab.id} 
                 fatsId={tab.fatsId}
                 onEdit={handleEditFATS}
+                onViewFATS={handleViewFATS}
               />
             </Box>
           );

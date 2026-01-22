@@ -10,7 +10,7 @@ from typing import List, Optional
 from app.db.session import get_db
 from app.schemas.fats_entry import (
     FATSEntryCreate, FATSEntryUpdate, FATSEntryResponse, 
-    FATSEntryWithComments, FATSCommentCreate, FATSCommentResponse
+    FATSEntryWithComments, FATSCommentCreate, FATSCommentUpdate, FATSCommentResponse
 )
 # Removed FATSImageResponse import - using dict responses for filesystem-only approach
 from app.services.fats_service import FATSService
@@ -228,6 +228,36 @@ async def get_fats_comments(
     comments = await fats_service.get_fats_comments(db, fats_id)
     # Convert legacy model to response schema
     return [FATSCommentResponse.from_legacy_model(comment) for comment in comments]
+
+@router.patch("/comments/{comment_id}", response_model=FATSCommentResponse)
+async def update_comment(
+    comment_id: int,
+    comment_data: FATSCommentUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a comment
+    Only provided fields will be updated
+    """
+    from app.schemas.fats_entry import FATSCommentResponse, FATSCommentUpdate
+    
+    comment = await fats_service.update_comment(
+        db=db,
+        comment_id=comment_id,
+        comment_text=comment_data.comment_text,
+        commenter=comment_data.commenter,
+        todo=comment_data.todo,
+        solution=comment_data.solution
+    )
+    
+    if not comment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Comment with ID {comment_id} not found"
+        )
+    
+    # Convert legacy model to response schema
+    return FATSCommentResponse.from_legacy_model(comment)
 
 @router.get("/stats/summary", response_model=dict)
 async def get_fats_statistics(

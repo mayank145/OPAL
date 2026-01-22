@@ -45,11 +45,9 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   const [activeSearchTerm, setActiveSearchTerm] = useState(''); // The term actually used for search
   const [searchMode, setSearchMode] = useState('OR'); // 'OR' or 'AND' search mode
   const [sectionFilter, setSectionFilter] = useState('');
-  const [section2Filter, setSection2Filter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [statistics, setStatistics] = useState(null);
   const [sections, setSections] = useState([]); // All available sections from fsection table
-  const [sections2, setSections2] = useState([]); // All available section2 values from fault table
   const [sortColumn, setSortColumn] = useState('idno'); // Column to sort by
   const [sortDirection, setSortDirection] = useState('desc'); // 'asc' or 'desc'
   
@@ -66,7 +64,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       setLoading(true);
       setError(null);
       
-      console.log('🔍 Loading FATS - Section:', sectionFilter, 'Section2:', section2Filter, 'Search:', activeSearchTerm);
+      console.log('🔍 Loading FATS - Section:', sectionFilter, 'Search:', activeSearchTerm);
       
       // Check if search term is a pure number (likely an IDNo)
       const isIdSearch = activeSearchTerm && /^\d+$/.test(activeSearchTerm.trim());
@@ -80,7 +78,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
         const params = {
           search: activeSearchTerm.trim(),
           section: sectionFilter || undefined,
-          section2: section2Filter || undefined,
           limit: 1, // ID search returns only 1 result
         };
         
@@ -101,7 +98,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
           const params = {
             search: phrase,
             section: sectionFilter || undefined,
-            section2: section2Filter || undefined,
             limit: 1000,
           };
           
@@ -124,7 +120,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
               const params = {
                 search: keyword,
                 section: sectionFilter || undefined,
-                section2: section2Filter || undefined,
                 limit: 1000, // High limit to search more records
               };
               
@@ -149,7 +144,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
             const firstKeywordParams = {
               search: keywords[0],
               section: sectionFilter || undefined,
-              section2: section2Filter || undefined,
               limit: 1000,
             };
             
@@ -178,7 +172,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
         // No search term: Just fetch with filters
         const params = {
           section: sectionFilter || undefined,
-          section2: section2Filter || undefined,
           limit: 100,
         };
         results = await fatsAPI.getAll(params);
@@ -215,7 +208,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     } finally {
       setLoading(false);
     }
-  }, [activeSearchTerm, searchMode, sectionFilter, section2Filter, statusFilter, statistics]);
+  }, [activeSearchTerm, searchMode, sectionFilter, statusFilter, statistics]);
 
   // Load sections from API on mount (only once)
   useEffect(() => {
@@ -238,35 +231,14 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     loadSections();
   }, []); // Empty dependency array means this runs once on mount
 
-  // Load sections2 from API on mount (only once)
-  useEffect(() => {
-    const loadSections2 = async () => {
-      try {
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Loading sections2...');
-        }
-        const sections2Data = await referenceAPI.getSections2();
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Sections2 loaded:', sections2Data?.length || 0);
-        }
-        setSections2(sections2Data || []);
-      } catch (err) {
-        console.warn('Failed to load sections2:', err);
-        // Set empty array on error
-        setSections2([]);
-      }
-    };
-    loadSections2();
-  }, []);
-
   // Load FATS when filters or search term changes
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('FATS load triggered:', { activeSearchTerm, searchMode, sectionFilter, section2Filter, statusFilter });
+      console.log('FATS load triggered:', { activeSearchTerm, searchMode, sectionFilter, statusFilter });
     }
     loadFATS();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSearchTerm, searchMode, sectionFilter, section2Filter, statusFilter]); // Removed loadFATS from deps to prevent infinite loop
+  }, [activeSearchTerm, searchMode, sectionFilter, statusFilter]); // Removed loadFATS from deps to prevent infinite loop
 
   // Auto-clear search when search term is erased
   useEffect(() => {
@@ -424,13 +396,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
               onDelete={() => setSectionFilter('')}
             />
           )}
-          {section2Filter && (
-            <Chip 
-              label={`Section 2 "${section2Filter === '.none' ? 'None' : section2Filter}": ${fatsList.length} faults`} 
-              color="secondary"
-              onDelete={() => setSection2Filter('')}
-            />
-          )}
         </Box>
 
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
@@ -497,21 +462,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                 ))}
               </Select>
             </FormControl>
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <InputLabel>Section 2</InputLabel>
-              <Select
-                value={section2Filter}
-                label="Section 2"
-                onChange={(e) => setSection2Filter(e.target.value)}
-              >
-                <MenuItem value="">All Sections 2</MenuItem>
-                {sections2.map((section2) => (
-                  <MenuItem key={section2} value={section2}>
-                    {section2 === '.none' ? 'None' : section2}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
         </Box>
 
         {error && (
@@ -562,17 +512,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                       )}
                     </Box>
                   </TableCell>
-                  <TableCell 
-                    sx={{ cursor: 'pointer', userSelect: 'none' }}
-                    onClick={() => handleSort('section2')}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      Section 2
-                      {sortColumn === 'section2' && (
-                        sortDirection === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />
-                      )}
-                    </Box>
-                  </TableCell>
                   <TableCell>Issue</TableCell>
                   <TableCell>Solution</TableCell>
                   <TableCell align="center">Actions</TableCell>
@@ -581,7 +520,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
               <TableBody>
                 {fatsList.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">
+                    <TableCell colSpan={6} align="center">
                       <Box sx={{ py: 4 }}>
                         <Typography variant="h6" color="text.secondary" gutterBottom>
                           {activeSearchTerm ? '🔍 No Faults Found' : '📋 No FATS Entries'}
@@ -648,11 +587,6 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                       <TableCell>
                         <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
                           {fats.section || '.none'}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
-                          {fats.section2 || '.none'}
                         </Typography>
                       </TableCell>
                       <TableCell>

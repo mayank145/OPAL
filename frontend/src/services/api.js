@@ -116,6 +116,12 @@ export const fatsAPI = {
     return response.data;
   },
 
+  // Update comment
+  updateComment: async (commentId, commentData) => {
+    const response = await api.patch(`/api/v1/fats/comments/${commentId}`, commentData);
+    return response.data;
+  },
+
   // Upload image for FATS
   uploadImage: async (fatsId, file) => {
     const formData = new FormData();

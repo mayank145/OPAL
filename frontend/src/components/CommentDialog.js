@@ -14,11 +14,12 @@ import {
   ListItem,
   ListItemText,
   Divider,
-  Chip,
+  IconButton,
 } from '@mui/material';
+import { Edit as EditIcon } from '@mui/icons-material';
 import { fatsAPI } from '../services/api';
 
-const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
+const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingComment = null }) => {
   const [commentText, setCommentText] = useState('');
   const [commenter, setCommenter] = useState('');
   const [todo, setTodo] = useState('');
@@ -27,6 +28,16 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
   const [error, setError] = useState(null);
   const [comments, setComments] = useState([]);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [currentMode, setCurrentMode] = useState(mode);
+  const [currentEditingComment, setCurrentEditingComment] = useState(editingComment);
+
+  // Helper function to strip HTML tags and decode entities
+  const stripHtml = (html) => {
+    if (!html) return '';
+    const tmp = document.createElement('DIV');
+    tmp.innerHTML = html;
+    return tmp.textContent || tmp.innerText || '';
+  };
 
   useEffect(() => {
     if (open && fatsId) {
@@ -34,6 +45,25 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, fatsId]);
+
+  // Update form when mode or editingComment changes
+  useEffect(() => {
+    setCurrentMode(mode);
+    setCurrentEditingComment(editingComment);
+    
+    if (mode === 'edit' && editingComment) {
+      // Strip HTML from comment text when editing
+      setCommentText(stripHtml(editingComment.comment_text) || '');
+      setCommenter(editingComment.commenter || '');
+      setTodo(editingComment.todo || '');
+      setSolution(editingComment.solution || '');
+    } else {
+      setCommentText('');
+      setCommenter('');
+      setTodo('');
+      setSolution('');
+    }
+  }, [mode, editingComment]);
 
   const loadComments = async () => {
     try {
@@ -57,8 +87,7 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
       setLoading(true);
       setError(null);
 
-      // Build comment data - don't include fats_id (it's in the URL path)
-      // Also, omit undefined/null/empty values to avoid validation issues
+      // Build comment data
       const commentData = {
         comment_text: commentText.trim(),
         commenter: commenter?.trim() || 'Anonymous',
@@ -72,23 +101,52 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
         commentData.solution = solution.trim();
       }
 
-      await fatsAPI.addComment(fatsId, commentData);
+      if (currentMode === 'edit' && currentEditingComment) {
+        // Update existing comment
+        await fatsAPI.updateComment(currentEditingComment.id, commentData);
+      } else {
+        // Add new comment
+        await fatsAPI.addComment(fatsId, commentData);
+      }
       
-      // Clear form
+      // Clear form and switch back to add mode
       setCommentText('');
       setCommenter('');
       setTodo('');
       setSolution('');
+      setCurrentMode('add');
+      setCurrentEditingComment(null);
       
       // Reload comments
       await loadComments();
       
       if (onSave) onSave(fatsId);
     } catch (err) {
-      setError(err.message || 'Failed to add comment');
+      setError(err.message || `Failed to ${currentMode === 'edit' ? 'update' : 'add'} comment`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditComment = (comment) => {
+    setCurrentMode('edit');
+    setCurrentEditingComment(comment);
+    // Strip HTML from comment text when editing
+    setCommentText(stripHtml(comment.comment_text) || '');
+    setCommenter(comment.commenter || '');
+    setTodo(comment.todo || '');
+    setSolution(comment.solution || '');
+    setError(null);
+  };
+
+  const handleCancelEdit = () => {
+    setCurrentMode('add');
+    setCurrentEditingComment(null);
+    setCommentText('');
+    setCommenter('');
+    setTodo('');
+    setSolution('');
+    setError(null);
   };
 
   const handleClose = () => {
@@ -103,7 +161,7 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        Add Comment to FATS: {fatsId}
+        {currentMode === 'edit' ? 'Edit Comment' : `Add Comment to FATS: ${fatsId}`}
       </DialogTitle>
       <DialogContent>
         <Box sx={{ mt: 2 }}>
@@ -165,7 +223,19 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
             <List>
               {comments.map((comment) => (
                 <React.Fragment key={comment.id}>
-                  <ListItem alignItems="flex-start">
+                  <ListItem 
+                    alignItems="flex-start"
+                    secondaryAction={
+                      <IconButton 
+                        edge="end" 
+                        onClick={() => handleEditComment(comment)}
+                        title="Edit comment"
+                        size="small"
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    }
+                  >
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -181,8 +251,8 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
                       }
                       secondary={
                         <Box>
-                          <Typography variant="body2" sx={{ mt: 1 }}>
-                            {comment.comment_text}
+                          <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+                            {stripHtml(comment.comment_text)}
                           </Typography>
                           {comment.todo && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
@@ -206,13 +276,20 @@ const CommentDialog = ({ open, fatsId, onClose, onSave }) => {
         </Box>
       </DialogContent>
       <DialogActions>
+        {currentMode === 'edit' && (
+          <Button onClick={handleCancelEdit} sx={{ mr: 'auto' }}>
+            Cancel Edit
+          </Button>
+        )}
         <Button onClick={handleClose}>Close</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
           disabled={loading || !commentText.trim()}
         >
-          {loading ? 'Adding...' : 'Add Comment'}
+          {loading 
+            ? (currentMode === 'edit' ? 'Updating...' : 'Adding...') 
+            : (currentMode === 'edit' ? 'Update Comment' : 'Add Comment')}
         </Button>
       </DialogActions>
     </Dialog>

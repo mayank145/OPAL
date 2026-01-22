@@ -25,13 +25,15 @@ import {
   Print as PrintIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  AddComment as AddCommentIcon,
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
 import { fatsAPI } from '../services/api';
+import CommentDialog from './CommentDialog';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-const FATSDetailInline = ({ fatsId, onEdit }) => {
+const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
   const [fats, setFats] = useState(null);
   const [images, setImages] = useState([]);
   const [comments, setComments] = useState([]);
@@ -43,6 +45,8 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [imageToDelete, setImageToDelete] = useState(null);
   const [deleteError, setDeleteError] = useState(null);
+  const [commentDialogOpen, setCommentDialogOpen] = useState(false);
+  const [commentToEdit, setCommentToEdit] = useState(null);
   const imageContainerRef = useRef(null);
 
   useEffect(() => {
@@ -85,6 +89,20 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
     }
   };
 
+  const handleEditComment = (comment) => {
+    setCommentToEdit(comment);
+    setCommentDialogOpen(true);
+  };
+
+  const handleCloseCommentDialog = () => {
+    setCommentDialogOpen(false);
+    setCommentToEdit(null);
+  };
+
+  const handleCommentSaved = () => {
+    loadComments();
+  };
+
   const handleKeyPress = (e) => {
     if (!selectedImage || images.length <= 1) return;
     
@@ -118,22 +136,18 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
   }, [selectedImage, images, imageZoom]);
 
   // Handle clicks on fault reference links
-  useEffect(() => {
-    const handleFaultLinkClick = (e) => {
-      const faultLink = e.target.closest('.fault-reference-link');
-      if (faultLink) {
-        e.preventDefault();
-        const faultId = faultLink.getAttribute('data-fault-id');
-        if (faultId && onEdit) {
-          // Open the referenced fault
-          onEdit(parseInt(faultId));
-        }
+  const handleFaultLinkClick = (e) => {
+    const faultLink = e.target.closest('.fault-reference-link');
+    if (faultLink) {
+      e.preventDefault();
+      e.stopPropagation();
+      const faultId = faultLink.getAttribute('data-fault-id');
+      if (faultId && onViewFATS) {
+        // Open the referenced fault as a new tab
+        onViewFATS(parseInt(faultId));
       }
-    };
-
-    document.addEventListener('click', handleFaultLinkClick);
-    return () => document.removeEventListener('click', handleFaultLinkClick);
-  }, [onEdit]);
+    }
+  };
 
   const sanitizeHTML = (html) => {
     if (!html) return '';
@@ -149,12 +163,14 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
     
     // Convert internal fault reference links (#fault-XXXX) to functional links
     // These are created by the "#" button in the editor
-    const faultLinkRegex = /<a\s+href="#fault-(\d+)"([^>]*)>(.*?)<\/a>/gi;
-    htmlWithLinks = htmlWithLinks.replace(faultLinkRegex, (match, faultId, attrs, text) => {
-      return `<a href="javascript:void(0)" data-fault-id="${faultId}" class="fault-reference-link" style="color: #1976d2; text-decoration: underline; cursor: pointer;"${attrs}>${text}</a>`;
+    // Match both <a href="#fault-XXXX"> and <a target="..." href="#fault-XXXX">
+    const faultLinkRegex = /<a\s+([^>]*?)href="#fault-(\d+)"([^>]*)>(.*?)<\/a>/gi;
+    htmlWithLinks = htmlWithLinks.replace(faultLinkRegex, (match, before, faultId, after, text) => {
+      // Strip out ALL attributes and create a clean link - no target="_blank"
+      return `<a href="javascript:void(0)" data-fault-id="${faultId}" class="fault-reference-link" style="color: #1976d2; text-decoration: underline; cursor: pointer;">${text}</a>`;
     });
     
-    return DOMPurify.sanitize(htmlWithLinks, {
+    const sanitized = DOMPurify.sanitize(htmlWithLinks, {
       ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div'],
       ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'data-fault-id'],
       ALLOWED_STYLES: {
@@ -168,6 +184,12 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
         }
       }
     });
+    
+    // CRITICAL: Remove target attribute from fault-reference-link elements
+    // This prevents them from opening in new browser tabs
+    const finalHtml = sanitized.replace(/(<a\s+[^>]*?class="fault-reference-link"[^>]*?)\s+target="[^"]*"([^>]*?>)/gi, '$1$2');
+    
+    return finalHtml;
   };
 
   const formatDate = (dateString) => {
@@ -412,6 +434,7 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
         </Typography>
         <Paper variant="outlined" sx={{ p: 2, bgcolor: 'white', mb: 2 }}>
           <Box
+            onClick={handleFaultLinkClick}
             sx={{
               '& p': { marginBottom: '0.5rem', marginTop: 0 },
               '& p:last-child': { marginBottom: 0 },
@@ -457,6 +480,7 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
         </Typography>
         <Paper variant="outlined" sx={{ p: 2, bgcolor: 'white', mb: 3 }}>
           <Box
+            onClick={handleFaultLinkClick}
             sx={{
               '& p': { marginBottom: '0.5rem', marginTop: 0 },
               '& p:last-child': { marginBottom: 0 },
@@ -572,12 +596,29 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
 
         {/* Comments Section */}
         <Divider sx={{ my: 2 }} />
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom sx={{ fontWeight: 'bold' }}>
-          Comments:
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, pl: 1 }}>
-          {comments.length} comment(s)
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Box>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+              Comments:
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ pl: 1 }}>
+              {comments.length} comment(s)
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="success"
+            size="small"
+            startIcon={<AddCommentIcon />}
+            onClick={() => {
+              setCommentToEdit(null);
+              setCommentDialogOpen(true);
+            }}
+            sx={{ minWidth: '140px' }}
+          >
+            Add Comment
+          </Button>
+        </Box>
         {comments.length > 0 ? (
           <Box sx={{ mt: 2 }}>
             {comments.map((comment, index) => (
@@ -586,15 +627,26 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
                 variant="outlined" 
                 sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}
               >
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
                     {comment.commenter || comment.operator || 'Anonymous'}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {formatDate(comment.created_at || comment.datein)}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatDate(comment.created_at || comment.datein)}
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleEditComment(comment)}
+                      title="Edit comment"
+                      sx={{ ml: 1 }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
                 </Box>
                 <Box
+                  onClick={handleFaultLinkClick}
                   sx={{
                     mb: 1,
                     '& p': { marginBottom: '0.5rem', marginTop: 0 },
@@ -889,6 +941,16 @@ const FATSDetailInline = ({ fatsId, onEdit }) => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Comment Edit Dialog */}
+      <CommentDialog
+        open={commentDialogOpen}
+        fatsId={fatsId}
+        onClose={handleCloseCommentDialog}
+        onSave={handleCommentSaved}
+        mode={commentToEdit ? 'edit' : 'add'}
+        editingComment={commentToEdit}
+      />
     </Paper>
     </>
   );

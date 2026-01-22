@@ -89,6 +89,13 @@ class FATSCommentCreate(FATSCommentBase):
     # Note: fats_id is NOT included here - it comes from the URL path parameter
     # This prevents validation conflicts when fats_id is sent in both URL and body
 
+class FATSCommentUpdate(BaseModel):
+    """Schema for updating FATS comments - all fields optional"""
+    todo: Optional[str] = Field(None, max_length=80)
+    solution: Optional[str] = Field(None, max_length=80)
+    comment_text: Optional[str] = Field(None, description="Comment text", min_length=1)
+    commenter: Optional[str] = Field(None, max_length=100)
+
 class FATSCommentResponse(BaseModel):
     """Schema for FATS comment responses - maps legacy field names to API-friendly names"""
     id: int  # Maps from legacy idno

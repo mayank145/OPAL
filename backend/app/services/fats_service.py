@@ -151,20 +151,18 @@ class FATSService:
                         )
                     )
             
-            # Apply section filters with OR logic when both are provided
-            section_filters = []
+            # Apply section filter - searches BOTH section and section2 columns
+            # This matches old system behavior: select one section, search both columns
             if section and section.strip():
-                section_filters.append(FATSEntry.section == section.strip())
-            if section2 and section2.strip():
-                section_filters.append(FATSEntry.section2 == section2.strip())
-            
-            # If any section filters provided, apply them with OR logic
-            if section_filters:
-                if len(section_filters) == 1:
-                    query = query.where(section_filters[0])
-                else:
-                    # Both filters provided - use OR logic (match either section OR section2)
-                    query = query.where(or_(*section_filters))
+                section_value = section.strip()
+                query = query.where(
+                    or_(
+                        FATSEntry.section == section_value,
+                        FATSEntry.section2 == section_value
+                    )
+                )
+            # Note: section2 parameter is kept for backwards compatibility but not used
+            # The single section filter now searches both columns
             
             # Apply status filter (uses idx_fault_status index)
             if status and status.strip():
@@ -362,6 +360,50 @@ class FATSService:
             logger = logging.getLogger(__name__)
             logger.error(f"Error querying comments: {e}", exc_info=True)
             return []
+    
+    async def update_comment(
+        self,
+        db: AsyncSession,
+        comment_id: int,
+        comment_text: Optional[str] = None,
+        commenter: Optional[str] = None,
+        todo: Optional[str] = None,
+        solution: Optional[str] = None
+    ) -> Optional[FATSComment]:
+        """
+        Update a comment
+        Only updates fields that are provided (not None)
+        """
+        try:
+            # Fetch the existing comment
+            result = await db.execute(
+                select(FATSComment).where(FATSComment.idno == comment_id)
+            )
+            comment = result.scalar_one_or_none()
+            
+            if not comment:
+                return None
+            
+            # Update fields if provided
+            if comment_text is not None:
+                comment.sdescribe = comment_text
+            if commenter is not None:
+                comment.operator = commenter
+            if todo is not None:
+                comment.todo = todo
+            if solution is not None:
+                comment.solution = solution
+            
+            await db.commit()
+            await db.refresh(comment)
+            
+            return comment
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error updating comment {comment_id}: {e}")
+            await db.rollback()
+            return None
     
     async def get_fats_statistics(self, db: AsyncSession) -> dict:
         """Get FATS statistics - optimized with single query"""
