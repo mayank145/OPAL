@@ -38,8 +38,8 @@ const FullFaultsList = ({ open, onClose }) => {
       setLoading(true);
       setError(null);
       
-      // Fetch ALL faults (no limit)
-      const results = await fatsAPI.getAll({ limit: 10000 });
+      // Fetch ALL faults (high limit to get all records)
+      const results = await fatsAPI.getAll({ limit: 50000 });
       setFaults(results || []);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to load faults');

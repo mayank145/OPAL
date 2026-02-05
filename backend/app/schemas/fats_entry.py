@@ -119,7 +119,7 @@ class FATSCommentResponse(BaseModel):
             solution=comment.solution,
             comment_text=comment.sdescribe or "",
             commenter=comment.operator,
-            created_at=comment.datein or datetime.utcnow()
+            created_at=comment.datein
         )
     
     class Config:

@@ -34,6 +34,7 @@ import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { fatsAPI, referenceAPI } from '../services/api';
+import { formatHSTTimestamp } from '../utils/timezone';
 import MenuBar from './MenuBar';
 
 // Get API base URL for constructing image URLs
@@ -1293,7 +1294,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
                         />
                         <ImageListItemBar
                           title={image.filename}
-                          subtitle={new Date(image.uploaded_at).toLocaleDateString()}
+                          subtitle={`${new Date(image.uploaded_at).toLocaleDateString()} HST`}
                           actionIcon={
                             !isViewMode && (
                               <IconButton
@@ -1335,7 +1336,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
                                 {comment.commenter || 'Anonymous'}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {comment.created_at ? new Date(comment.created_at).toLocaleString() : 'N/A'}
+                                {formatHSTTimestamp(comment.created_at)}
                               </Typography>
                             </Box>
                           }
@@ -1642,7 +1643,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
               
               <Box sx={{ mt: 2, color: 'rgba(255, 255, 255, 0.7)' }}>
                 <Typography variant="body2">
-                  Uploaded: {new Date(selectedImage.uploaded_at).toLocaleString()}
+                  Uploaded: {formatHSTTimestamp(selectedImage.uploaded_at)}
                 </Typography>
                 {selectedImage.uploaded_by && (
                   <Typography variant="body2">

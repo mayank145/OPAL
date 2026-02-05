@@ -26,7 +26,7 @@ image_service = ImageService()
 @router.get("/", response_model=List[FATSEntryResponse])
 async def list_fats(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(20, ge=1, le=10000, description="Max number of records to return"),
+    limit: int = Query(20, ge=1, le=50000, description="Max number of records to return"),
     search: Optional[str] = Query(None, description="Search term"),
     section: Optional[str] = Query(None, description="Filter by section"),
     section2: Optional[str] = Query(None, description="Filter by section2"),
@@ -258,6 +258,24 @@ async def update_comment(
     
     # Convert legacy model to response schema
     return FATSCommentResponse.from_legacy_model(comment)
+
+@router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_comment(
+    comment_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Delete a comment by ID
+    """
+    success = await fats_service.delete_comment(db=db, comment_id=comment_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Comment with ID {comment_id} not found"
+        )
+    
+    return None
 
 @router.get("/stats/summary", response_model=dict)
 async def get_fats_statistics(

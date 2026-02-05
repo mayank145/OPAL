@@ -7,7 +7,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 second timeout (reduced from 60s for better UX)
+  timeout: 60000, // 60 second timeout for slow connections
 });
 
 // Add request interceptor for timeout handling
@@ -49,10 +49,10 @@ export const fatsAPI = {
     if (section2 && section2.trim()) queryParams.append('section2', section2);
     if (status && status.trim()) queryParams.append('status', status);
     
-    // Use longer timeout for list endpoint (20 seconds) - database query can be slow
+    // Use longer timeout for list endpoint - database query can be slow
     const listApi = axios.create({
       baseURL: API_BASE_URL,
-      timeout: 20000, // Increased to 20 seconds
+      timeout: 60000, // Increased to 60 seconds for large datasets
     });
     const response = await listApi.get(`/api/v1/fats/?${queryParams.toString()}`);
     return response.data;
@@ -120,6 +120,11 @@ export const fatsAPI = {
   updateComment: async (commentId, commentData) => {
     const response = await api.patch(`/api/v1/fats/comments/${commentId}`, commentData);
     return response.data;
+  },
+
+  // Delete comment
+  deleteComment: async (commentId) => {
+    await api.delete(`/api/v1/fats/comments/${commentId}`);
   },
 
   // Upload image for FATS

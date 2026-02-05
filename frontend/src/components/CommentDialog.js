@@ -16,8 +16,9 @@ import {
   Divider,
   IconButton,
 } from '@mui/material';
-import { Edit as EditIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { fatsAPI } from '../services/api';
+import { formatHSTTimestamp } from '../utils/timezone';
 
 const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingComment = null }) => {
   const [commentText, setCommentText] = useState('');
@@ -149,6 +150,33 @@ const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingCom
     setError(null);
   };
 
+  const handleDeleteComment = async (commentId) => {
+    if (!window.confirm('Are you sure you want to delete this comment? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      await fatsAPI.deleteComment(commentId);
+      
+      // If we were editing this comment, cancel the edit
+      if (currentEditingComment && currentEditingComment.id === commentId) {
+        handleCancelEdit();
+      }
+      
+      // Reload comments
+      await loadComments();
+      
+      if (onSave) onSave(fatsId);
+    } catch (err) {
+      setError(err.message || 'Failed to delete comment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleClose = () => {
     setCommentText('');
     setCommenter('');
@@ -226,14 +254,25 @@ const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingCom
                   <ListItem 
                     alignItems="flex-start"
                     secondaryAction={
-                      <IconButton 
-                        edge="end" 
-                        onClick={() => handleEditComment(comment)}
-                        title="Edit comment"
-                        size="small"
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <IconButton 
+                          onClick={() => handleEditComment(comment)}
+                          title="Edit comment"
+                          size="small"
+                          disabled={loading}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton 
+                          onClick={() => handleDeleteComment(comment.id)}
+                          title="Delete comment"
+                          size="small"
+                          color="error"
+                          disabled={loading}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Box>
                     }
                   >
                     <ListItemText
@@ -243,9 +282,7 @@ const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingCom
                             {comment.commenter || 'Anonymous'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {comment.created_at
-                              ? new Date(comment.created_at).toLocaleString()
-                              : ''}
+                            {formatHSTTimestamp(comment.created_at)}
                           </Typography>
                         </Box>
                       }
@@ -277,9 +314,21 @@ const CommentDialog = ({ open, fatsId, onClose, onSave, mode = 'add', editingCom
       </DialogContent>
       <DialogActions>
         {currentMode === 'edit' && (
-          <Button onClick={handleCancelEdit} sx={{ mr: 'auto' }}>
-            Cancel Edit
-          </Button>
+          <Box sx={{ mr: 'auto', display: 'flex', gap: 1 }}>
+            <Button onClick={handleCancelEdit}>
+              Cancel Edit
+            </Button>
+            <Button 
+              onClick={() => {
+                setCommentText('');
+                setTodo('');
+                setSolution('');
+              }}
+              color="warning"
+            >
+              Clear Fields
+            </Button>
+          </Box>
         )}
         <Button onClick={handleClose}>Close</Button>
         <Button

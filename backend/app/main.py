@@ -108,13 +108,14 @@ async def health_check_db():
     from sqlalchemy import text
     try:
         async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-            await conn.commit()
+            result = await conn.execute(text("SELECT 1"))
+            result.fetchone()
         return {
             "status": "healthy",
             "database": "connected"
         }
     except Exception as e:
+        logger.error(f"Database health check failed: {e}")
         return JSONResponse(
             status_code=503,
             content={

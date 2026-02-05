@@ -29,6 +29,7 @@ import {
 } from '@mui/icons-material';
 import DOMPurify from 'dompurify';
 import { fatsAPI } from '../services/api';
+import { formatHSTTimestamp } from '../utils/timezone';
 import CommentDialog from './CommentDialog';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -192,21 +193,6 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
     return finalHtml;
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return 'N/A';
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch (e) {
-      return dateString;
-    }
-  };
 
   const handlePrint = () => {
     window.print();
@@ -400,7 +386,7 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
           </Box>
         </Box>
         <Typography variant="body2" color="text.secondary">
-          Created: {formatDate(fats.datein)} | Operator: {fats.operator || 'N/A'}
+          Created: {formatHSTTimestamp(fats.datein)} | Operator: {fats.operator || 'N/A'}
         </Typography>
       </Box>
 
@@ -633,7 +619,7 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="caption" color="text.secondary">
-                      {formatDate(comment.created_at || comment.datein)}
+                      {formatHSTTimestamp(comment.created_at || comment.datein)}
                     </Typography>
                     <IconButton
                       size="small"
@@ -878,7 +864,7 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
                 }}
               >
                 <Typography variant="body2">
-                  Uploaded: {selectedImage.uploaded_at ? new Date(selectedImage.uploaded_at).toLocaleString() : 'N/A'}
+                  Uploaded: {formatHSTTimestamp(selectedImage.uploaded_at)}
                 </Typography>
                 <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', mt: 0.5 }}>
                   💡 Use [←] [→] arrows to navigate | Zoom: {Math.round(imageZoom * 100)}%

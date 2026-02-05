@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+// Fixed: ID search now preserves backend order
 import {
   Box,
   Paper,
@@ -51,6 +52,12 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   const [sortColumn, setSortColumn] = useState('idno'); // Column to sort by
   const [sortDirection, setSortDirection] = useState('desc'); // 'asc' or 'desc'
   
+  // Pagination state for "Load More"
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalInDatabase, setTotalInDatabase] = useState(1461); // Total faults in database
+  const FAULTS_PER_PAGE = 100;
+  
   // Expose refresh method to parent component
   useImperativeHandle(ref, () => ({
     refresh: () => {
@@ -72,17 +79,17 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       let results;
       
       if (isIdSearch) {
-        // Use standard search endpoint - backend now handles ID search automatically
+        // Use standard search endpoint - backend returns searched ID at top + recent faults
         console.log('🔢 Searching by fault ID:', activeSearchTerm.trim());
         
         const params = {
           search: activeSearchTerm.trim(),
           section: sectionFilter || undefined,
-          limit: 1, // ID search returns only 1 result
+          limit: 100, // Only load searched fault + 99 recent faults for performance
         };
         
         results = await fatsAPI.getAll(params);
-        console.log('✅ ID search result:', results.length, 'fault(s)');
+        console.log('✅ ID search result:', results.length, 'faults (ID', activeSearchTerm.trim(), 'at top + recent)');
       } else if (activeSearchTerm && activeSearchTerm.trim()) {
         const searchTerm = activeSearchTerm.trim();
         
@@ -184,11 +191,16 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       
       setFatsList(results || []);
       
+      // Reset pagination and check if there are more results
+      setCurrentPage(1);
+      setHasMore((results || []).length >= FAULTS_PER_PAGE);
+      
       // Load statistics (only once, not on every search)
       if (!statistics) {
         try {
           const stats = await fatsAPI.getStatistics();
           setStatistics(stats);
+          setTotalInDatabase(stats?.total || 1461);
         } catch (statsErr) {
           // Don't fail the whole load if stats fail
           console.warn('Failed to load statistics:', statsErr);
@@ -209,6 +221,42 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       setLoading(false);
     }
   }, [activeSearchTerm, searchMode, sectionFilter, statusFilter, statistics]);
+
+  // Load More functionality - fetches next page of results
+  const loadMore = async () => {
+    if (loading || !hasMore) return;
+    
+    try {
+      setLoading(true);
+      const nextPage = currentPage + 1;
+      const skip = currentPage * FAULTS_PER_PAGE;
+      
+      console.log('📄 Loading more faults - Page:', nextPage, 'Skip:', skip);
+      
+      const params = {
+        section: sectionFilter || undefined,
+        limit: FAULTS_PER_PAGE,
+        skip: skip,
+      };
+      
+      const moreResults = await fatsAPI.getAll(params);
+      console.log('✅ Loaded', moreResults.length, 'more faults');
+      
+      // Append new results to existing list
+      setFatsList(prevList => [...prevList, ...moreResults]);
+      setAllFatsList(prevList => [...prevList, ...moreResults]);
+      
+      // Update pagination state
+      setCurrentPage(nextPage);
+      setHasMore(moreResults.length >= FAULTS_PER_PAGE);
+      
+    } catch (err) {
+      console.error('Error loading more faults:', err);
+      setError('Failed to load more faults');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Load sections from API on mount (only once)
   useEffect(() => {
@@ -269,6 +317,19 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   const sortedFatsList = React.useMemo(() => {
     if (!fatsList || fatsList.length === 0) return [];
     
+    console.log('🔍 sortedFatsList memo - activeSearchTerm:', activeSearchTerm);
+    
+    // If searching by fault ID, preserve backend order (searched fault is already at top)
+    const isIdSearch = activeSearchTerm && /^\d+$/.test(activeSearchTerm.trim());
+    console.log('🔍 isIdSearch check:', isIdSearch, 'activeSearchTerm:', activeSearchTerm);
+    
+    if (isIdSearch) {
+      console.log('🔢 ID search detected - preserving backend order (searched fault at top)');
+      console.log('🔢 First fault ID in list:', fatsList[0]?.idno);
+      return fatsList; // Don't sort - preserve backend order
+    }
+    
+    console.log('📊 Applying sort - column:', sortColumn, 'direction:', sortDirection);
     const sorted = [...fatsList].sort((a, b) => {
       let aVal = a[sortColumn];
       let bVal = b[sortColumn];
@@ -286,8 +347,9 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       return 0;
     });
     
+    console.log('📊 After sort - First fault ID:', sorted[0]?.idno);
     return sorted;
-  }, [fatsList, sortColumn, sortDirection]);
+  }, [fatsList, sortColumn, sortDirection, activeSearchTerm]);
 
   const handleDeleteBlank = async () => {
     if (window.confirm('Are you sure you want to delete all blank FATS entries?\n\nThis will delete entries where Issue, Description, and Solution are all N/A (or empty).')) {
@@ -383,10 +445,14 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
         </Box>
 
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Chip label={`Showing: ${fatsList.length}`} color="primary" />
           <Chip 
-            label={`Database Total: ${statistics?.total_fats || 0}`} 
-            color="primary"
+            label={`Showing: ${sortedFatsList.length}${sortedFatsList.length < totalInDatabase ? ` of ${totalInDatabase}` : ''}`} 
+            color="primary" 
+          />
+          <Chip 
+            label={`Database Total: ${totalInDatabase}`} 
+            color="info"
+            variant="outlined"
           />
           {sectionFilter && (
             <Chip 
@@ -648,6 +714,46 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
               </TableBody>
             </Table>
           </TableContainer>
+        )}
+        
+        {/* Load More Button and Count */}
+        {!loading && sortedFatsList.length > 0 && (
+          <Box sx={{ 
+            mt: 3, 
+            mb: 2, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', 
+            gap: 2 
+          }}>
+            {/* Count Display */}
+            <Typography variant="body2" color="text.secondary">
+              Showing <strong>{sortedFatsList.length}</strong> of <strong>{totalInDatabase}</strong> total faults
+              {sortedFatsList.length < totalInDatabase && (
+                <span> ({totalInDatabase - sortedFatsList.length} remaining)</span>
+              )}
+            </Typography>
+            
+            {/* Load More Button */}
+            {hasMore && sortedFatsList.length < totalInDatabase && (
+              <Button
+                variant="outlined"
+                onClick={loadMore}
+                disabled={loading}
+                size="large"
+                sx={{ minWidth: 200 }}
+              >
+                {loading ? 'Loading...' : `Load More (${FAULTS_PER_PAGE})`}
+              </Button>
+            )}
+            
+            {/* All Loaded Message */}
+            {!hasMore && sortedFatsList.length >= FAULTS_PER_PAGE && (
+              <Typography variant="body2" color="success.main" sx={{ fontWeight: 'bold' }}>
+                ✓ All faults loaded
+              </Typography>
+            )}
+          </Box>
         )}
       </Paper>
     </Box>

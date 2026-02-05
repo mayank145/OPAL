@@ -14,6 +14,7 @@ from datetime import datetime
 
 from app.models import FATSEntry, FATSComment
 from app.schemas.fats_entry import FATSEntryCreate, FATSEntryUpdate, FATSCommentCreate
+from app.core.timezone import get_hst_now
 # from app.models.fats_entry import FATSStatus, FATSPriority
 
 class FATSService:
@@ -96,8 +97,8 @@ class FATSService:
     ) -> List[FATSEntry]:
         """Get all FATS entries with filtering - optimized with database indexes"""
         # Reasonable limits for pagination
-        limit = min(limit, 1000)  # Allow up to 1000 results
-        skip = min(skip, 5000)  # Cap skip to prevent deep pagination
+        limit = min(limit, 50000)  # Allow up to 50000 results for full list
+        skip = min(skip, 10000)  # Cap skip to prevent deep pagination
         
         try:
             # Start with base query
@@ -113,25 +114,16 @@ class FATSService:
                 
                 # Check if search term is a number (fault ID search)
                 if search_trimmed.isdigit():
-                    # If searching by fault ID: show exact match first, then related faults
+                    # If searching by fault ID: show ALL faults, but prioritize the matching ID
                     try:
                         fault_id = int(search_trimmed)
-                        search_pattern = f"%{search_trimmed}%"
-                        
-                        # Search for exact ID match OR mentions in text fields
-                        query = query.where(
-                            or_(
-                                FATSEntry.idno == fault_id,  # Exact ID match
-                                FATSEntry.issue.ilike(search_pattern),  # ID mentioned in issue
-                                FATSEntry.solution.ilike(search_pattern),  # ID mentioned in solution
-                                FATSEntry.idescribe.ilike(search_pattern),  # ID mentioned in description
-                                FATSEntry.sdescribe.ilike(search_pattern)  # ID mentioned in solution description
-                            )
-                        )
                         
                         # Mark that we need to prioritize the exact ID match
+                        # BUT don't filter - show all faults
                         is_id_search = True
                         fault_id_to_prioritize = fault_id
+                        
+                        # No WHERE clause - we want to show ALL faults
                     except ValueError:
                         # If conversion fails, treat as text search
                         pass
@@ -247,7 +239,7 @@ class FATSService:
             "status": fats_data.status,
             "assigned_to": fats_data.assigned_to,
             "created_by": fats_data.created_by,
-            "datein": datetime.utcnow(),
+            "datein": get_hst_now(),
             "todo": fats_data.todo,
             "operator": fats_data.operator,
             "section2": fats_data.section2
@@ -281,7 +273,7 @@ class FATSService:
         for field, value in update_dict.items():
             setattr(fats_entry, field, value)
         
-        fats_entry.updated_at = datetime.utcnow()
+        fats_entry.updated_at = get_hst_now()
         
         await db.commit()
         await db.refresh(fats_entry)
@@ -329,7 +321,7 @@ class FATSService:
             operator=commenter,  # Legacy field for operator/commenter
             todo=todo,  # Legacy field for todo
             solution=solution,  # Legacy field for solution
-            datein=datetime.utcnow()
+            datein=get_hst_now()
         )
         
         db.add(comment)
@@ -404,6 +396,37 @@ class FATSService:
             logger.error(f"Error updating comment {comment_id}: {e}")
             await db.rollback()
             return None
+    
+    async def delete_comment(
+        self,
+        db: AsyncSession,
+        comment_id: int
+    ) -> bool:
+        """
+        Delete a comment by ID
+        Returns True if deleted, False if not found
+        """
+        try:
+            # Fetch the existing comment
+            result = await db.execute(
+                select(FATSComment).where(FATSComment.idno == comment_id)
+            )
+            comment = result.scalar_one_or_none()
+            
+            if not comment:
+                return False
+            
+            # Delete the comment
+            await db.delete(comment)
+            await db.commit()
+            
+            return True
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error deleting comment {comment_id}: {e}")
+            await db.rollback()
+            return False
     
     async def get_fats_statistics(self, db: AsyncSession) -> dict:
         """Get FATS statistics - optimized with single query"""

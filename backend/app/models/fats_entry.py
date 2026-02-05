@@ -7,6 +7,7 @@ from datetime import datetime
 import enum
 
 from app.db.session import Base
+from app.core.timezone import get_hst_now
 
 class FATSStatus(str, enum.Enum):
     ACTIVE = "Active"
@@ -27,7 +28,7 @@ class FATSEntry(Base):
     todo = Column(String(80))  # Added to match legacy
     section = Column(String(100))
     operator = Column(String(20))  # Added to match legacy
-    datein = Column(DateTime, default=datetime.utcnow)
+    datein = Column(DateTime, default=get_hst_now)
     likes = Column(Integer, default=0)
     dislikes = Column(Integer, default=0)
     views = Column(Integer, default=0)  # Added to match legacy
@@ -39,7 +40,7 @@ class FATSEntry(Base):
     assigned_to = Column(String(100))
     created_by = Column(String(100))
     resolved_at = Column(DateTime)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=get_hst_now, onupdate=get_hst_now)
     
     # Relationships will be added later to avoid circular import issues
     # comments = relationship("FATSComment", back_populates="fats_entry", cascade="all, delete-orphan")

@@ -5,6 +5,7 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from datetime import datetime
 
 from app.db.session import Base
+from app.core.timezone import get_hst_now
 
 class FATSImage(Base):
     """
@@ -21,7 +22,7 @@ class FATSImage(Base):
     file_size = Column(Integer)  # File size in bytes
     mime_type = Column(String(100))  # MIME type (e.g., image/jpeg, image/png)
     uploaded_by = Column(String(100))  # Username who uploaded
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=get_hst_now)
     
     def __repr__(self):
         return f"<FATSImage(id={self.id}, fats_id={self.fats_id}, filename='{self.filename}')>"

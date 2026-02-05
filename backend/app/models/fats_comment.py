@@ -6,6 +6,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.db.session import Base
+from app.core.timezone import get_hst_now
 
 class FATSComment(Base):
     """
@@ -20,7 +21,7 @@ class FATSComment(Base):
     todo = Column(String(80))
     solution = Column(String(80))
     operator = Column(String(20))  # Commenter/operator name
-    datein = Column(DateTime, default=datetime.utcnow)
+    datein = Column(DateTime, default=get_hst_now)
     sdescribe = Column(Text)  # Comment text/description
     
     # Relationships disabled to avoid circular import issues in current setup
