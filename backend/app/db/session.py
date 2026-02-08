@@ -14,20 +14,18 @@ engine = create_async_engine(
     settings.async_database_url,
     echo=False,  # Disabled for better performance
     poolclass=QueuePool,
-    pool_size=10,  # Increased for better concurrency
-    max_overflow=10,  # Increased overflow
+    pool_size=20,  # Increased for better concurrency
+    max_overflow=20,  # Increased overflow
     pool_pre_ping=True,  # Verify connections before using
-    pool_recycle=3600,  # Recycle connections after 1 hour
-    pool_timeout=30,  # Increased timeout for getting connection from pool
+    pool_recycle=1800,  # Recycle connections after 30 minutes
+    pool_timeout=60,  # Increased timeout for getting connection from pool
     # Performance optimizations
     pool_reset_on_return='commit',
     # MariaDB specific settings
-    # Note: aiomysql doesn't support read_timeout/write_timeout in connect_args
     connect_args={
         "charset": "utf8mb4",
         "autocommit": False,
-        "connect_timeout": 5,  # Connection timeout in seconds (reduced)
-        # Note: aiomysql doesn't support read_timeout/write_timeout in connect_args
+        "connect_timeout": 10,  # Connection timeout in seconds (increased)
     }
 )
 

@@ -34,7 +34,7 @@ import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { fatsAPI, referenceAPI } from '../services/api';
-import { formatHSTTimestamp } from '../utils/timezone';
+import { formatHSTTimestamp, getCurrentHSTForInput } from '../utils/timezone';
 import MenuBar from './MenuBar';
 
 // Get API base URL for constructing image URLs
@@ -71,7 +71,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
     section: '',
     section2: '.none',
     assigned_to: '',
-    datein: new Date().toISOString().slice(0, 19).replace('T', ' '),
+    datein: getCurrentHSTForInput(),
   });
 
   const isViewMode = mode === 'view';
@@ -244,7 +244,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
               section: '.none',
               section2: '.none',
               assigned_to: '',
-              datein: new Date().toISOString().slice(0, 19).replace('T', ' '),
+              datein: getCurrentHSTForInput(),
             });
           }
         }
@@ -548,7 +548,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
             section: data.section || '.none',
             section2: data.section2 || '.none',
             assigned_to: data.assigned_to || '',
-            datein: data.datein ? new Date(data.datein).toISOString().slice(0, 19).replace('T', ' ') : new Date().toISOString().slice(0, 19).replace('T', ' '),
+            datein: data.datein || getCurrentHSTForInput(),
           });
         } catch (err) {
           console.error('Error loading FATS:', err);

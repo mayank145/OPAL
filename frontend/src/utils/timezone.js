@@ -65,3 +65,37 @@ export const formatHSTDate = (dateString) => {
     return dateString;
   }
 };
+
+/**
+ * Get current HST time in the format required for datetime-local input
+ * @returns {string} - Current HST time in format "YYYY-MM-DD HH:mm:ss"
+ */
+export const getCurrentHSTForInput = () => {
+  try {
+    // Get current time in HST timezone
+    const now = new Date();
+    
+    // Format as ISO string in HST timezone
+    const hstString = now.toLocaleString('en-US', {
+      timeZone: 'Pacific/Honolulu',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    
+    // Convert from "MM/DD/YYYY, HH:mm:ss" to "YYYY-MM-DD HH:mm:ss"
+    const parts = hstString.split(', ');
+    const dateParts = parts[0].split('/');
+    const timePart = parts[1];
+    
+    return `${dateParts[2]}-${dateParts[0]}-${dateParts[1]} ${timePart}`;
+  } catch (e) {
+    console.error('Error getting current HST time:', e);
+    // Fallback to UTC time with warning
+    return new Date().toISOString().slice(0, 19).replace('T', ' ');
+  }
+};

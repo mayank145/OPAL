@@ -30,8 +30,8 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
         import asyncio
         start_time = time.time()
         try:
-            # Set 25 second timeout for all requests
-            response = await asyncio.wait_for(call_next(request), timeout=25.0)
+            # Set 90 second timeout for all requests (increased for large queries)
+            response = await asyncio.wait_for(call_next(request), timeout=90.0)
             process_time = time.time() - start_time
             response.headers["X-Process-Time"] = str(process_time)
             return response
@@ -39,7 +39,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             process_time = time.time() - start_time
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Request timeout: {request.url.path} took >25s")
+            logger.warning(f"Request timeout: {request.url.path} took >90s")
             return JSONResponse(
                 status_code=504,
                 content={"message": "Request timeout", "detail": "The request took too long to process"}
@@ -48,7 +48,7 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
             process_time = time.time() - start_time
             import logging
             logger = logging.getLogger(__name__)
-            if process_time > 25:  # Log slow requests
+            if process_time > 30:  # Log slow requests (>30s)
                 logger.warning(f"Slow request: {request.url.path} took {process_time:.2f}s")
             raise
 

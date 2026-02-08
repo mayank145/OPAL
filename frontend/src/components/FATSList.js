@@ -56,6 +56,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalInDatabase, setTotalInDatabase] = useState(1461); // Total faults in database
+  const [totalMatchingSearch, setTotalMatchingSearch] = useState(null); // Total faults matching current search/filter
   const FAULTS_PER_PAGE = 100;
   
   // Expose refresh method to parent component
@@ -79,17 +80,17 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       let results;
       
       if (isIdSearch) {
-        // Use standard search endpoint - backend returns searched ID at top + recent faults
+        // Use standard search endpoint - backend returns searched ID at top + other matching faults
         console.log('🔢 Searching by fault ID:', activeSearchTerm.trim());
         
         const params = {
           search: activeSearchTerm.trim(),
           section: sectionFilter || undefined,
-          limit: 100, // Only load searched fault + 99 recent faults for performance
+          limit: 1000, // Load all matching faults (not just 100)
         };
         
         results = await fatsAPI.getAll(params);
-        console.log('✅ ID search result:', results.length, 'faults (ID', activeSearchTerm.trim(), 'at top + recent)');
+        console.log('✅ ID search result:', results.length, 'faults containing ID', activeSearchTerm.trim());
       } else if (activeSearchTerm && activeSearchTerm.trim()) {
         const searchTerm = activeSearchTerm.trim();
         
@@ -190,6 +191,18 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
       console.log('📊 Displaying:', (results || []).length, 'faults');
       
       setFatsList(results || []);
+      
+      // Set total matching search - if there's an active search/filter, use the result count
+      // For ID searches or text searches, the results.length is the actual match count
+      const hasActiveSearch = activeSearchTerm && activeSearchTerm.trim();
+      const hasActiveFilter = sectionFilter && sectionFilter !== '';
+      
+      if (hasActiveSearch || hasActiveFilter) {
+        setTotalMatchingSearch(results?.length || 0);
+      } else {
+        // No search/filter - matching total is the database total
+        setTotalMatchingSearch(null); // null means "use totalInDatabase"
+      }
       
       // Reset pagination and check if there are more results
       setCurrentPage(1);
@@ -446,7 +459,11 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
 
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <Chip 
-            label={`Showing: ${sortedFatsList.length}${sortedFatsList.length < totalInDatabase ? ` of ${totalInDatabase}` : ''}`} 
+            label={`Showing: ${sortedFatsList.length}${
+              totalMatchingSearch !== null 
+                ? ` of ${totalMatchingSearch}` 
+                : (sortedFatsList.length < totalInDatabase ? ` of ${totalInDatabase}` : '')
+            }`} 
             color="primary" 
           />
           <Chip 
@@ -728,14 +745,14 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
           }}>
             {/* Count Display */}
             <Typography variant="body2" color="text.secondary">
-              Showing <strong>{sortedFatsList.length}</strong> of <strong>{totalInDatabase}</strong> total faults
-              {sortedFatsList.length < totalInDatabase && (
-                <span> ({totalInDatabase - sortedFatsList.length} remaining)</span>
+              Showing <strong>{sortedFatsList.length}</strong> of <strong>{totalMatchingSearch !== null ? totalMatchingSearch : totalInDatabase}</strong> {totalMatchingSearch !== null ? 'matching' : 'total'} faults
+              {sortedFatsList.length < (totalMatchingSearch !== null ? totalMatchingSearch : totalInDatabase) && (
+                <span> ({(totalMatchingSearch !== null ? totalMatchingSearch : totalInDatabase) - sortedFatsList.length} remaining)</span>
               )}
             </Typography>
             
             {/* Load More Button */}
-            {hasMore && sortedFatsList.length < totalInDatabase && (
+            {hasMore && sortedFatsList.length < (totalMatchingSearch !== null ? totalMatchingSearch : totalInDatabase) && (
               <Button
                 variant="outlined"
                 onClick={loadMore}
@@ -750,7 +767,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
             {/* All Loaded Message */}
             {!hasMore && sortedFatsList.length >= FAULTS_PER_PAGE && (
               <Typography variant="body2" color="success.main" sx={{ fontWeight: 'bold' }}>
-                ✓ All faults loaded
+                ✓ All {totalMatchingSearch !== null ? 'matching ' : ''}faults loaded
               </Typography>
             )}
           </Box>

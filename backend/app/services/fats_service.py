@@ -114,16 +114,25 @@ class FATSService:
                 
                 # Check if search term is a number (fault ID search)
                 if search_trimmed.isdigit():
-                    # If searching by fault ID: show ALL faults, but prioritize the matching ID
+                    # If searching by fault ID: show faults containing this ID
                     try:
                         fault_id = int(search_trimmed)
                         
                         # Mark that we need to prioritize the exact ID match
-                        # BUT don't filter - show all faults
                         is_id_search = True
                         fault_id_to_prioritize = fault_id
                         
-                        # No WHERE clause - we want to show ALL faults
+                        # Search for faults containing this ID in various fields
+                        search_pattern = f"%{search_trimmed}%"
+                        query = query.where(
+                            or_(
+                                FATSEntry.idno == fault_id,  # Exact ID match
+                                FATSEntry.issue.ilike(search_pattern),  # ID mentioned in issue
+                                FATSEntry.solution.ilike(search_pattern),  # ID mentioned in solution
+                                FATSEntry.idescribe.ilike(search_pattern),  # ID mentioned in description
+                                FATSEntry.sdescribe.ilike(search_pattern)  # ID mentioned in solution description
+                            )
+                        )
                     except ValueError:
                         # If conversion fails, treat as text search
                         pass
