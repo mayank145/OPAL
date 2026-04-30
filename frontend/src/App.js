@@ -211,10 +211,12 @@ function AppContent() {
         sx={{ background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
         <Toolbar sx={{ minHeight: 60 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1 }}>
-            <Box sx={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-              🔭
-            </Box>
+            <Box
+              component="img"
+              src="/subaru_logo.png"
+              alt="Subaru Telescope"
+              sx={{ width: 42, height: 42, objectFit: 'contain', flexShrink: 0, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.4))' }}
+            />
             <Box>
               <Typography variant="h6" component="div" sx={{ fontWeight: 700, letterSpacing: 0.5, lineHeight: 1.1 }}>
                 OPAL
