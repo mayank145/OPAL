@@ -32,7 +32,6 @@ const SLIDES = [
   { src: '/slideshow/s04.png', credit: 'Summit sunset, Maunakea' },
   { src: '/slideshow/s05.png', credit: 'Milky Way — Subaru Telescope wide' },
   { src: '/slideshow/s06.png', credit: 'Milky Way with laser guide star' },
-  { src: '/slideshow/s07.png', credit: 'Laser guide star — Subaru Telescope' },
   { src: '/slideshow/s08.png', credit: 'Comet and laser over Maunakea' },
   { src: '/slideshow/s09.png', credit: 'Subaru Telescope — Maunakea summit in snow' },
   { src: '/slideshow/s10.png', credit: 'Subaru Telescope at golden sunset' },
