@@ -7,9 +7,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
+from app.core.auth import require_auth
 from app.db.session import get_db
 from app.schemas.fats_entry import (
-    FATSEntryCreate, FATSEntryUpdate, FATSEntryResponse, 
+    FATSEntryCreate, FATSEntryUpdate, FATSEntryResponse,
     FATSEntryWithComments, FATSCommentCreate, FATSCommentUpdate, FATSCommentResponse
 )
 # Removed FATSImageResponse import - using dict responses for filesystem-only approach
@@ -113,7 +114,8 @@ async def get_fats(
 async def create_fats(
     fats_data: FATSEntryCreate,
     confirmed: bool = Query(False, description="Confirmation for FATS creation"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Requirement #2: Create FATS with confirmation
@@ -144,7 +146,8 @@ async def create_fats(
 async def update_fats(
     fats_id: str,
     update_data: FATSEntryUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Update FATS entry
@@ -160,7 +163,8 @@ async def update_fats(
 @router.delete("/{fats_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_fats(
     fats_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Delete FATS entry
@@ -175,7 +179,8 @@ async def delete_fats(
 
 @router.delete("/cleanup/blank", response_model=dict)
 async def delete_blank_fats(
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Requirement #1: Delete blank FATS entries
@@ -190,7 +195,8 @@ async def delete_blank_fats(
 async def add_comment(
     fats_id: str,
     comment_data: FATSCommentCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Add comment to FATS entry
@@ -233,7 +239,8 @@ async def get_fats_comments(
 async def update_comment(
     comment_id: int,
     comment_data: FATSCommentUpdate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Update a comment
@@ -262,7 +269,8 @@ async def update_comment(
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(
     comment_id: int,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Delete a comment by ID
@@ -292,7 +300,8 @@ async def get_fats_statistics(
 async def upload_fats_image(
     fats_id: str,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Upload an image for a FATS entry
@@ -310,7 +319,7 @@ async def upload_fats_image(
         image_info = await image_service.upload_image(
             fats_id=int(fats_id),
             file=file,
-            uploaded_by="system"  # TODO: Get from authentication
+            uploaded_by=current_user.get("sub", "system"),
         )
         
         # Add URL to response
@@ -328,7 +337,8 @@ async def upload_fats_image(
 async def upload_multiple_fats_images(
     fats_id: str,
     files: ListType[UploadFile] = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_auth),
 ):
     """
     Upload multiple images for a FATS entry
@@ -352,7 +362,7 @@ async def upload_multiple_fats_images(
         images = await image_service.upload_multiple_images(
             fats_id=int(fats_id),
             files=files,
-            uploaded_by="system"  # TODO: Get from authentication
+            uploaded_by=current_user.get("sub", "system"),
         )
         
         # Add URLs to responses
@@ -423,7 +433,8 @@ async def get_image_file(
 
 @router.delete("/images/{filename}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_fats_image(
-    filename: str
+    filename: str,
+    current_user: dict = Depends(require_auth),
 ):
     """
     Delete an image by filename - filesystem only

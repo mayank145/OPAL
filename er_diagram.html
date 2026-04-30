@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OPAL Summit Log — ER Diagram</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ── Top bar ─────────────────────────────── */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: 52px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      display: flex; align-items: center; gap: 12px; padding: 0 16px;
+    }
+    #topbar h1 { font-size: 14px; font-weight: 700; color: #7dd3fc; flex: 1; }
+    #topbar .badge {
+      font-size: 11px; background: #0f4c81; color: #7dd3fc;
+      padding: 3px 10px; border-radius: 99px; font-weight: 600;
+    }
+    #topbar button {
+      font-size: 11px; padding: 5px 12px;
+      border: 1px solid #475569; border-radius: 6px;
+      background: #1e293b; color: #94a3b8; cursor: pointer;
+    }
+    #topbar button:hover { background: #334155; color: #e2e8f0; }
+
+    /* ── Canvas ─────────────────────────────── */
+    #canvas-wrap {
+      position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+      overflow: hidden; cursor: grab;
+    }
+    #canvas-wrap.grabbing { cursor: grabbing; }
+    #canvas {
+      position: absolute; top: 0; left: 0;
+      transform-origin: 0 0;
+    }
+
+    /* ── SVG connector lines ─────────────────── */
+    #svg-layer {
+      position: absolute; top: 0; left: 0;
+      pointer-events: none;
+      overflow: visible;
+    }
+
+    /* ── Table cards ─────────────────────────── */
+    .er-table {
+      position: absolute;
+      background: #1e293b;
+      border: 1.5px solid #334155;
+      border-radius: 10px;
+      min-width: 240px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+      user-select: none;
+      transition: border-color .15s;
+    }
+    .er-table:hover { border-color: #64748b; }
+    .er-table.selected { border-color: #38bdf8; }
+
+    .er-table-head {
+      padding: 9px 14px;
+      border-radius: 8px 8px 0 0;
+      font-size: 13px; font-weight: 700;
+      display: flex; align-items: center; gap: 8px;
+      cursor: move;
+    }
+    .er-table-head .tbl-icon { font-size: 15px; }
+    .er-table-head .tbl-name { flex: 1; }
+    .er-table-head .tbl-desc {
+      font-size: 10px; font-weight: 400;
+      opacity: .7; text-align: right; max-width: 110px; line-height: 1.3;
+    }
+
+    .er-table-body { padding: 4px 0 6px; }
+
+    .er-col {
+      display: flex; align-items: center; gap: 6px;
+      padding: 3px 14px;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .er-col:hover { background: #263451; }
+
+    .col-key {
+      font-size: 10px; font-weight: 700;
+      padding: 1px 5px; border-radius: 4px;
+      min-width: 28px; text-align: center;
+      flex-shrink: 0;
+    }
+    .pk  { background: #854d0e; color: #fef08a; }
+    .fk  { background: #164e63; color: #7dd3fc; }
+    .idx { background: #1e3a5f; color: #93c5fd; }
+
+    .col-name { color: #e2e8f0; flex: 1; }
+    .col-type { color: #64748b; font-size: 10.5px; }
+    .col-note { color: #475569; font-size: 10px; font-style: italic; }
+
+    .er-divider {
+      height: 1px; background: #334155; margin: 4px 14px;
+    }
+
+    /* ── Legend ─────────────────────────────── */
+    #legend {
+      position: fixed; bottom: 16px; left: 16px; z-index: 100;
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 8px; padding: 10px 14px; font-size: 11px;
+    }
+    #legend h3 { font-size: 11px; color: #94a3b8; margin-bottom: 6px; }
+    .leg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+    .leg-line { width: 28px; height: 2px; }
+
+    /* ── Info panel ─────────────────────────── */
+    #info-panel {
+      position: fixed; top: 68px; right: 16px; z-index: 100;
+      background: #1e293b; border: 1px solid #334155; border-radius: 10px;
+      width: 280px; padding: 14px; font-size: 12px;
+      transition: opacity .2s;
+    }
+    #info-panel h2 { font-size: 13px; font-weight: 700; color: #7dd3fc; margin-bottom: 8px; }
+    #info-panel .info-row { display: flex; gap: 8px; margin-bottom: 5px; }
+    #info-panel .info-label { color: #64748b; min-width: 80px; }
+    #info-panel .info-val { color: #e2e8f0; }
+    #info-panel .info-purpose { color: #94a3b8; line-height: 1.5; margin-top: 6px; }
+  </style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>⚡ OPAL Summit Log — Entity-Relationship Diagram</h1>
+  <span class="badge">PostgreSQL · opal_summit</span>
+  <button onclick="resetView()">Reset View</button>
+  <button onclick="fitAll()">Fit All</button>
+</div>
+
+<div id="canvas-wrap">
+  <div id="canvas">
+    <svg id="svg-layer"></svg>
+    <!-- Tables rendered by JS -->
+  </div>
+</div>
+
+<div id="legend">
+  <h3>LEGEND</h3>
+  <div class="leg-row">
+    <div class="leg-line" style="background:#38bdf8; height:2px;"></div>
+    <span>One-to-Many (CASCADE)</span>
+  </div>
+  <div class="leg-row">
+    <div class="leg-line" style="background:#f59e0b; height:2px; border-top: 2px dashed #f59e0b; height:0;"></div>
+    <span>Optional FK (SET NULL)</span>
+  </div>
+  <div class="leg-row">
+    <div class="col-key pk" style="display:inline-block;">PK</div>
+    <span>Primary Key (UUID)</span>
+  </div>
+  <div class="leg-row">
+    <div class="col-key fk" style="display:inline-block;">FK</div>
+    <span>Foreign Key</span>
+  </div>
+  <div class="leg-row">
+    <div class="col-key idx" style="display:inline-block;">IX</div>
+    <span>Indexed</span>
+  </div>
+  <div style="margin-top:8px; color:#475569; font-size:10px;">Drag tables · Scroll to zoom · Click table for details</div>
+</div>
+
+<div id="info-panel">
+  <h2>📋 Table Info</h2>
+  <p class="info-purpose" style="color:#475569;">Click any table card to see its purpose and row count hint.</p>
+</div>
+
+<script>
+// ─── Table Definitions ────────────────────────────────────────────────────────
+const tables = [
+  {
+    id: "summit_days",
+    name: "summit_days",
+    icon: "📅",
+    color: "#0369a1",
+    headColor: "#0c4a6e",
+    x: 460, y: 60,
+    purpose: "Root anchor for one calendar date of telescope operations. Every other table references this via summit_day_id FK. Legacy source: days.idno → days.date.",
+    rows: "~3 000 rows (one per operating night since ~2000)",
+    cols: [
+      { key:"PK", name:"id",              type:"UUID",         note:"" },
+      { key:"IX", name:"legacy_day_id",   type:"INT UNIQUE",   note:"days.idno" },
+      { key:"IX", name:"log_date",        type:"DATE UNIQUE",  note:"NOT NULL" },
+      { key:"",   name:"day_label",       type:"VARCHAR(10)",  note:"e.g. A/B" },
+      { key:"",   name:"history_text",    type:"TEXT",         note:"" },
+      { key:"",   name:"created_at",      type:"TIMESTAMPTZ",  note:"server default now()" },
+      { key:"",   name:"updated_at",      type:"TIMESTAMPTZ",  note:"server default now()" },
+    ]
+  },
+  {
+    id: "crew_assignments",
+    name: "crew_assignments",
+    icon: "👷",
+    color: "#0f766e",
+    headColor: "#134e4a",
+    x: 30, y: 280,
+    purpose: "Stores individual crew members per day. Legacy days had to1/to2/io1/io2/dc1/dc2 as flat columns — this table normalizes each into a separate row with role (TO/IO/DC), location, and shift times.",
+    rows: "~18 000 rows (avg 6 per day)",
+    cols: [
+      { key:"PK", name:"id",            type:"UUID",        note:"" },
+      { key:"FK", name:"summit_day_id", type:"UUID",        note:"CASCADE" },
+      { key:"",   name:"role",          type:"VARCHAR(10)", note:"TO | IO | DC" },
+      { key:"",   name:"member_name",   type:"VARCHAR(40)", note:"" },
+      { key:"",   name:"location",      type:"VARCHAR(30)", note:"summit / base" },
+      { key:"",   name:"time_in",       type:"TIMESTAMPTZ", note:"" },
+      { key:"",   name:"time_out",      type:"TIMESTAMPTZ", note:"" },
+      { key:"",   name:"sort_order",    type:"INT",         note:"default 0" },
+    ]
+  },
+  {
+    id: "weather_snapshots",
+    name: "weather_snapshots",
+    icon: "🌤",
+    color: "#0284c7",
+    headColor: "#0c4a6e",
+    x: 870, y: 280,
+    purpose: "One-to-one with summit_days. Captures nightly sky conditions. temp_raw / humidity_raw preserve the original legacy text (e.g. '0.9 to 3.2 C'); temp_c / humidity_pct hold the parsed numeric value.",
+    rows: "~3 000 rows (one per day)",
+    cols: [
+      { key:"PK", name:"id",            type:"UUID",           note:"" },
+      { key:"FK", name:"summit_day_id", type:"UUID UNIQUE",    note:"CASCADE" },
+      { key:"",   name:"sky",           type:"TEXT",           note:"clear / thin cirrus …" },
+      { key:"",   name:"seeing",        type:"TEXT",           note:"arcsec estimate" },
+      { key:"",   name:"temp_raw",      type:"TEXT",           note:"legacy string" },
+      { key:"",   name:"temp_c",        type:"NUMERIC(5,2)",   note:"parsed °C" },
+      { key:"",   name:"wind",          type:"TEXT",           note:"" },
+      { key:"",   name:"humidity_raw",  type:"TEXT",           note:"legacy string" },
+      { key:"",   name:"humidity_pct",  type:"NUMERIC(5,2)",   note:"parsed %" },
+      { key:"",   name:"comment_text",  type:"TEXT",           note:"" },
+      { key:"",   name:"captured_at",   type:"TIMESTAMPTZ",    note:"" },
+    ]
+  },
+  {
+    id: "email_deliveries",
+    name: "email_deliveries",
+    icon: "📧",
+    color: "#7c3aed",
+    headColor: "#4c1d95",
+    x: 870, y: 60,
+    purpose: "One-to-one with summit_days. Tracks whether nightly summary emails have been sent (mailed/mailsmoka/mailday flags from legacy). New columns am_sent_at/pm_sent_at/day_digest_sent_at support future automated delivery.",
+    rows: "~3 000 rows",
+    cols: [
+      { key:"PK", name:"id",               type:"UUID",        note:"" },
+      { key:"FK", name:"summit_day_id",    type:"UUID UNIQUE", note:"CASCADE" },
+      { key:"",   name:"mailed",           type:"CHAR(1)",     note:"Y/N legacy" },
+      { key:"",   name:"mailtime",         type:"TIMESTAMPTZ", note:"" },
+      { key:"",   name:"mailsmoka",        type:"CHAR(1)",     note:"Y/N legacy" },
+      { key:"",   name:"smokatime",        type:"TIMESTAMPTZ", note:"" },
+      { key:"",   name:"mailday",          type:"CHAR(1)",     note:"Y/N legacy" },
+      { key:"",   name:"maildtime",        type:"TIMESTAMPTZ", note:"" },
+      { key:"",   name:"am_sent_at",       type:"TIMESTAMPTZ", note:"future use" },
+      { key:"",   name:"pm_sent_at",       type:"TIMESTAMPTZ", note:"future use" },
+      { key:"",   name:"day_digest_sent_at",type:"TIMESTAMPTZ",note:"future use" },
+      { key:"",   name:"last_error",       type:"TEXT",        note:"delivery errors" },
+    ]
+  },
+  {
+    id: "observation_programs",
+    name: "observation_programs",
+    icon: "🔭",
+    color: "#b45309",
+    headColor: "#78350f",
+    x: 460, y: 580,
+    purpose: "Science programs scheduled for the night. Migrated from legacy progs table. Each row represents one allocated program slot with instrument, PI, observers, SA, and time window.",
+    rows: "~8 000 rows (avg 2–3 per night)",
+    cols: [
+      { key:"PK", name:"id",            type:"UUID",        note:"" },
+      { key:"IX", name:"legacy_prog_id",type:"INT UNIQUE",  note:"progs.idno" },
+      { key:"FK", name:"summit_day_id", type:"UUID",        note:"CASCADE" },
+      { key:"",   name:"sort_order",    type:"INT",         note:"progs.seq" },
+      { key:"",   name:"program_code",  type:"VARCHAR(20)", note:"gid or propid" },
+      { key:"",   name:"instr",         type:"VARCHAR(10)", note:"instrument" },
+      { key:"",   name:"alloc",         type:"VARCHAR(10)", note:"allocation type" },
+      { key:"",   name:"pi",            type:"VARCHAR(50)", note:"Principal Investigator" },
+      { key:"",   name:"ao1 / ao2",     type:"VARCHAR(10)", note:"adaptive optics" },
+      { key:"",   name:"slot_start/end",type:"TIMESTAMPTZ", note:"progs.intime/outtime" },
+      { key:"",   name:"gid",           type:"VARCHAR(10)", note:"group ID" },
+      { key:"",   name:"propid",        type:"VARCHAR(20)", note:"proposal ID" },
+      { key:"",   name:"obs1..obs4 +loc",type:"VARCHAR",   note:"observers + location" },
+      { key:"",   name:"ss / ss2 +loc", type:"VARCHAR",    note:"support astronomer" },
+      { key:"",   name:"others1/2 +loc",type:"VARCHAR",    note:"other personnel" },
+      { key:"",   name:"notes",         type:"TEXT",        note:"" },
+      { key:"",   name:"comment_text",  type:"VARCHAR(100)",note:"progs.comment" },
+    ]
+  },
+  {
+    id: "work_plans",
+    name: "work_plans",
+    icon: "🔧",
+    color: "#be185d",
+    headColor: "#831843",
+    x: 30, y: 580,
+    purpose: "Structured maintenance / engineering work plans for the night. Derived from items rows where logcrew='WP'. Tracks assigned personnel, locations, time windows, completion status, and safety requirements.",
+    rows: "~2 000 rows",
+    cols: [
+      { key:"PK", name:"id",            type:"UUID",         note:"" },
+      { key:"FK", name:"summit_day_id", type:"UUID",         note:"CASCADE" },
+      { key:"FK", name:"copied_from_id",type:"UUID NULL",    note:"SET NULL (self-ref)" },
+      { key:"",   name:"window_start/end",type:"TIMESTAMPTZ",note:"items.realstart/end" },
+      { key:"",   name:"nite_effect",   type:"VARCHAR(100)", note:"nightly impact" },
+      { key:"",   name:"day_effect",    type:"VARCHAR(100)", note:"daytime impact" },
+      { key:"",   name:"location 1/2/3",type:"VARCHAR(20)",  note:"" },
+      { key:"",   name:"assigned1/2",   type:"VARCHAR",      note:"assigned personnel" },
+      { key:"",   name:"dcassist",      type:"VARCHAR(10)",  note:"DC assistant" },
+      { key:"",   name:"notify",        type:"VARCHAR(20)",  note:"who to notify" },
+      { key:"",   name:"contact1/2",    type:"VARCHAR",      note:"contact info" },
+      { key:"",   name:"comptitle",     type:"VARCHAR(200)", note:"completion title" },
+      { key:"",   name:"comptext",      type:"TEXT",         note:"completion notes" },
+      { key:"",   name:"master",        type:"INT",          note:"" },
+      { key:"",   name:"melco / fai",   type:"CHAR(3)",      note:"flags" },
+      { key:"",   name:"seats/seats2/pseats",type:"INT",     note:"seat counts" },
+      { key:"",   name:"pass_text/rpass_text",type:"VARCHAR(80)",note:"" },
+      { key:"",   name:"requirements",  type:"TEXT",         note:"" },
+      { key:"",   name:"notes",         type:"TEXT",         note:"items.itemtext" },
+    ]
+  },
+  {
+    id: "log_items",
+    name: "log_items",
+    icon: "📝",
+    color: "#166534",
+    headColor: "#14532d",
+    x: 460, y: 310,
+    purpose: "Core operational log — every timestamped entry made during a night. Crew tabs (TO/IO/DC/WP/ALL/TO-IO) segment entries by team. Has GIN full-text search index on title+body for fast keyword search.",
+    rows: "~120 000 rows (avg ~40 per night)",
+    cols: [
+      { key:"PK", name:"id",               type:"UUID",        note:"" },
+      { key:"IX", name:"legacy_item_id",   type:"INT UNIQUE",  note:"items.idno" },
+      { key:"IX", name:"legacy_old_item_id",type:"INT",        note:"items.oldidno" },
+      { key:"FK", name:"summit_day_id",    type:"UUID",        note:"CASCADE" },
+      { key:"FK", name:"work_plan_id",     type:"UUID NULL",   note:"SET NULL" },
+      { key:"",   name:"crew_tab",         type:"VARCHAR(10)", note:"ALL|TO|IO|DC|WP|TO-IO" },
+      { key:"",   name:"item_time",        type:"TIMESTAMPTZ", note:"items.itemtime (HST→UTC)" },
+      { key:"",   name:"title",            type:"VARCHAR(200)",note:"items.itemtitle" },
+      { key:"",   name:"body",             type:"TEXT",        note:"items.itemtext" },
+      { key:"",   name:"item_type",        type:"VARCHAR(16)", note:"Comment/Trouble/…" },
+      { key:"",   name:"downtime_minutes", type:"INT",         note:"items.downtime" },
+      { key:"",   name:"subsystem",        type:"VARCHAR(10)", note:"telescope subsystem" },
+      { key:"",   name:"status",           type:"VARCHAR(15)", note:"Completed/…" },
+      { key:"",   name:"created_by",       type:"VARCHAR(20)", note:"items.user" },
+      { key:"",   name:"history_text",     type:"TEXT",        note:"items.history" },
+      { key:"",   name:"comment_text",     type:"TEXT",        note:"items.comment" },
+      { key:"",   name:"created_at",       type:"TIMESTAMPTZ", note:"items.timestamp" },
+      { key:"",   name:"updated_at",       type:"TIMESTAMPTZ", note:"items.timestamp" },
+    ]
+  },
+  {
+    id: "work_plan_item_links",
+    name: "work_plan_item_links",
+    icon: "🔗",
+    color: "#475569",
+    headColor: "#1e293b",
+    x: 30, y: 900,
+    purpose: "Junction table linking work plans to legacy log item IDs. Preserves the original ordering of items within a work plan from the legacy system. Used for audit trail — not actively queried in the new API.",
+    rows: "~2 000 rows",
+    cols: [
+      { key:"PK", name:"id",                    type:"UUID",  note:"" },
+      { key:"FK", name:"work_plan_id",          type:"UUID",  note:"CASCADE" },
+      { key:"IX", name:"linked_legacy_item_id", type:"INT",   note:"items.idno (no FK)" },
+      { key:"",   name:"link_order",            type:"INT",   note:"NOT NULL" },
+    ]
+  },
+];
+
+// ─── Relationships ────────────────────────────────────────────────────────────
+const rels = [
+  { from:"summit_days", to:"crew_assignments",      label:"1 : N",  style:"solid",  color:"#38bdf8" },
+  { from:"summit_days", to:"weather_snapshots",     label:"1 : 1",  style:"solid",  color:"#38bdf8" },
+  { from:"summit_days", to:"email_deliveries",      label:"1 : 1",  style:"solid",  color:"#38bdf8" },
+  { from:"summit_days", to:"observation_programs",  label:"1 : N",  style:"solid",  color:"#38bdf8" },
+  { from:"summit_days", to:"work_plans",            label:"1 : N",  style:"solid",  color:"#38bdf8" },
+  { from:"summit_days", to:"log_items",             label:"1 : N",  style:"solid",  color:"#38bdf8" },
+  { from:"work_plans",  to:"log_items",             label:"1 : N",  style:"dashed", color:"#f59e0b" },
+  { from:"work_plans",  to:"work_plan_item_links",  label:"1 : N",  style:"solid",  color:"#38bdf8" },
+  { from:"work_plans",  to:"work_plans",            label:"copied_from (self)",  style:"dashed", color:"#94a3b8" },
+];
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let scale = 0.72;
+let panX = 60, panY = 40;
+let dragging = null;
+let dragOffX = 0, dragOffY = 0;
+let isPanning = false;
+let panStartX = 0, panStartY = 0;
+let panOriginX = 0, panOriginY = 0;
+
+const wrap = document.getElementById("canvas-wrap");
+const canvas = document.getElementById("canvas");
+const svgLayer = document.getElementById("svg-layer");
+const infoPanel = document.getElementById("info-panel");
+
+// ─── Build table cards ────────────────────────────────────────────────────────
+function buildTables() {
+  tables.forEach(t => {
+    const el = document.createElement("div");
+    el.className = "er-table";
+    el.id = "tbl-" + t.id;
+    el.style.left = t.x + "px";
+    el.style.top  = t.y + "px";
+
+    let colsHtml = t.cols.map(c => {
+      const keyBadge = c.key
+        ? `<span class="col-key ${c.key.toLowerCase()}">${c.key}</span>`
+        : `<span style="min-width:28px;display:inline-block;"></span>`;
+      return `
+        <div class="er-col" title="${c.note}">
+          ${keyBadge}
+          <span class="col-name">${c.name}</span>
+          <span class="col-type">${c.type}</span>
+        </div>`;
+    }).join("");
+
+    el.innerHTML = `
+      <div class="er-table-head" style="background:${t.headColor}; color:${t.color === '#475569' ? '#94a3b8' : '#fff'};">
+        <span class="tbl-icon">${t.icon}</span>
+        <span class="tbl-name" style="color:#f0f9ff;">${t.name}</span>
+        <span class="tbl-desc">${t.rows.split("(")[0].trim()}</span>
+      </div>
+      <div class="er-table-body">${colsHtml}</div>`;
+
+    // drag header
+    const head = el.querySelector(".er-table-head");
+    head.addEventListener("mousedown", e => {
+      e.stopPropagation();
+      dragging = { el, t };
+      const rect = el.getBoundingClientRect();
+      dragOffX = e.clientX - rect.left;
+      dragOffY = e.clientY - rect.top;
+      el.classList.add("selected");
+    });
+
+    // click → info panel
+    el.addEventListener("click", () => showInfo(t));
+
+    canvas.appendChild(el);
+  });
+}
+
+// ─── Info panel ───────────────────────────────────────────────────────────────
+function showInfo(t) {
+  document.querySelectorAll(".er-table").forEach(e => e.classList.remove("selected"));
+  document.getElementById("tbl-" + t.id).classList.add("selected");
+
+  infoPanel.innerHTML = `
+    <h2>${t.icon} ${t.name}</h2>
+    <div class="info-row"><span class="info-label">Rows (est.)</span><span class="info-val">${t.rows.replace(/.*\((.*)\)/,"$1") || "—"}</span></div>
+    <div class="info-row"><span class="info-label">Columns</span><span class="info-val">${t.cols.length}</span></div>
+    <div class="info-row"><span class="info-label">PK type</span><span class="info-val">UUID v4</span></div>
+    <div class="info-row"><span class="info-label">FK policy</span><span class="info-val">${t.id === "work_plans" ? "CASCADE + SET NULL (self)" : t.id === "log_items" ? "CASCADE + SET NULL" : t.id === "summit_days" ? "— (root table)" : "CASCADE on DELETE"}</span></div>
+    <hr style="border-color:#334155; margin:8px 0;">
+    <p class="info-purpose">${t.purpose}</p>`;
+}
+
+// ─── SVG connectors ───────────────────────────────────────────────────────────
+function getCenter(tblId) {
+  const el = document.getElementById("tbl-" + tblId);
+  const t = tables.find(t => t.id === tblId);
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  return { x: t.x + w / 2, y: t.y + h / 2, w, h, x0: t.x, y0: t.y };
+}
+
+function edgePoint(from, to) {
+  const fx = from.x, fy = from.y;
+  const tx = to.x, ty = to.y;
+  const hw = from.w / 2, hh = from.h / 2;
+
+  const dx = tx - fx, dy = ty - fy;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    const ex = fx + (dx > 0 ? hw : -hw);
+    const ey = fy + dy * (hw / Math.abs(dx));
+    return { x: ex, y: ey };
+  } else {
+    const ex = fx + dx * (hh / Math.abs(dy));
+    const ey = fy + (dy > 0 ? hh : -hh);
+    return { x: ex, y: ey };
+  }
+}
+
+function drawConnectors() {
+  svgLayer.innerHTML = "";
+
+  // Arrow marker def
+  const defs = document.createElementNS("http://www.w3.org/2000/svg","defs");
+
+  ["#38bdf8","#f59e0b","#94a3b8"].forEach(col => {
+    const m = document.createElementNS("http://www.w3.org/2000/svg","marker");
+    const safeId = "arrow-" + col.replace("#","");
+    m.setAttribute("id", safeId);
+    m.setAttribute("markerWidth","8"); m.setAttribute("markerHeight","8");
+    m.setAttribute("refX","6"); m.setAttribute("refY","3");
+    m.setAttribute("orient","auto");
+    const poly = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+    poly.setAttribute("points","0 0, 6 3, 0 6");
+    poly.setAttribute("fill", col);
+    m.appendChild(poly);
+    defs.appendChild(m);
+  });
+  svgLayer.appendChild(defs);
+
+  rels.forEach(r => {
+    const fromEl = document.getElementById("tbl-" + r.from);
+    const toEl   = document.getElementById("tbl-" + r.to);
+    if (!fromEl || !toEl) return;
+
+    const fc = getCenter(r.from);
+    const tc = r.from === r.to
+      ? { ...fc, x: fc.x + 10, y: fc.y + 10 }
+      : getCenter(r.to);
+
+    const ep1 = edgePoint(fc, tc);
+    const ep2 = edgePoint(tc, fc);
+
+    const mx = (ep1.x + ep2.x) / 2;
+    const my = (ep1.y + ep2.y) / 2;
+
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    const d = `M ${ep1.x} ${ep1.y} Q ${mx} ${my - 30} ${ep2.x} ${ep2.y}`;
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", r.color);
+    path.setAttribute("stroke-width", "1.5");
+    if (r.style === "dashed") path.setAttribute("stroke-dasharray", "5 4");
+    path.setAttribute("marker-end", `url(#arrow-${r.color.replace("#","")})`);
+    path.setAttribute("opacity", "0.75");
+    svgLayer.appendChild(path);
+
+    // label
+    const txt = document.createElementNS("http://www.w3.org/2000/svg","text");
+    txt.setAttribute("x", mx);
+    txt.setAttribute("y", my - 34);
+    txt.setAttribute("text-anchor","middle");
+    txt.setAttribute("font-size","9");
+    txt.setAttribute("fill", r.color);
+    txt.setAttribute("opacity","0.9");
+    txt.textContent = r.label;
+    svgLayer.appendChild(txt);
+  });
+}
+
+// ─── Pan / Zoom ───────────────────────────────────────────────────────────────
+function applyTransform() {
+  canvas.style.transform = `translate(${panX}px,${panY}px) scale(${scale})`;
+}
+
+wrap.addEventListener("wheel", e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  scale = Math.max(0.2, Math.min(3, scale * delta));
+  applyTransform();
+  setTimeout(drawConnectors, 10);
+}, { passive: false });
+
+wrap.addEventListener("mousedown", e => {
+  if (dragging) return;
+  isPanning = true;
+  panStartX = e.clientX; panStartY = e.clientY;
+  panOriginX = panX; panOriginY = panY;
+  wrap.classList.add("grabbing");
+});
+
+document.addEventListener("mousemove", e => {
+  if (dragging) {
+    const rect = wrap.getBoundingClientRect();
+    const t = dragging.t;
+    t.x = (e.clientX - rect.left - panX - dragOffX) / scale;
+    t.y = (e.clientY - rect.top  - panY - dragOffY) / scale;
+    t.x = Math.max(0, t.x); t.y = Math.max(0, t.y);
+    dragging.el.style.left = t.x + "px";
+    dragging.el.style.top  = t.y + "px";
+    drawConnectors();
+    return;
+  }
+  if (isPanning) {
+    panX = panOriginX + (e.clientX - panStartX);
+    panY = panOriginY + (e.clientY - panStartY);
+    applyTransform();
+  }
+});
+
+document.addEventListener("mouseup", () => {
+  dragging = null;
+  isPanning = false;
+  wrap.classList.remove("grabbing");
+});
+
+function resetView() {
+  scale = 0.72; panX = 60; panY = 40;
+  applyTransform();
+  setTimeout(drawConnectors, 10);
+}
+
+function fitAll() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  tables.forEach(t => {
+    const el = document.getElementById("tbl-" + t.id);
+    if (!el) return;
+    minX = Math.min(minX, t.x);
+    minY = Math.min(minY, t.y);
+    maxX = Math.max(maxX, t.x + el.offsetWidth);
+    maxY = Math.max(maxY, t.y + el.offsetHeight);
+  });
+  const ww = wrap.offsetWidth, wh = wrap.offsetHeight;
+  const scaleX = ww / (maxX - minX + 80);
+  const scaleY = wh / (maxY - minY + 80);
+  scale = Math.min(scaleX, scaleY, 1.5);
+  panX = (ww - (maxX - minX) * scale) / 2 - minX * scale;
+  panY = (wh - (maxY - minY) * scale) / 2 - minY * scale;
+  applyTransform();
+  setTimeout(drawConnectors, 10);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+buildTables();
+applyTransform();
+setTimeout(() => { drawConnectors(); }, 100);
+setTimeout(() => { fitAll(); drawConnectors(); }, 300);
+
+window.addEventListener("resize", () => { drawConnectors(); });
+
+// show summit_days info by default
+setTimeout(() => showInfo(tables.find(t => t.id === "summit_days")), 400);
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 60000, // 60 second timeout for slow connections
+  withCredentials: true, // send httpOnly session cookie on every request
 });
 
 // Add request interceptor for timeout handling
@@ -30,6 +31,13 @@ api.interceptors.response.use(
   (error) => {
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       console.error('Request timeout - backend may be slow or unresponsive');
+    }
+    // Session expired or not authenticated — reload to trigger login screen
+    if (error.response?.status === 401) {
+      const isAuthEndpoint = error.config?.url?.includes('/auth/');
+      if (!isAuthEndpoint) {
+        window.location.reload();
+      }
     }
     return Promise.reject(error);
   }
@@ -199,10 +207,75 @@ export const referenceAPI = {
   },
 };
 
+// Summit Logging API (Postgres-backed) — full CRUD
+export const summitAPI = {
+  health: () => api.get('/api/v1/summit/health').then((r) => r.data),
+
+  // Days
+  getMonthly: (year, month) =>
+    api.get('/api/v1/summit/monthly', { params: { year, month } }).then((r) => r.data),
+  getDay: (logDate) => api.get(`/api/v1/summit/day/${logDate}`).then((r) => r.data),
+  createDay: (payload) => api.post('/api/v1/summit/days', payload).then((r) => r.data),
+  patchDay: (logDate, payload) =>
+    api.patch(`/api/v1/summit/day/${logDate}`, payload).then((r) => r.data),
+
+  // Crew assignments
+  createCrew: (logDate, payload) =>
+    api.post(`/api/v1/summit/day/${logDate}/crew`, payload).then((r) => r.data),
+  updateCrew: (crewId, payload) =>
+    api.patch(`/api/v1/summit/crew/${crewId}`, payload).then((r) => r.data),
+  deleteCrew: (crewId) => api.delete(`/api/v1/summit/crew/${crewId}`),
+
+  // Weather
+  upsertWeather: (logDate, payload) =>
+    api.put(`/api/v1/summit/day/${logDate}/weather`, payload).then((r) => r.data),
+
+  // Observation programs
+  createProgram: (logDate, payload) =>
+    api.post(`/api/v1/summit/day/${logDate}/programs`, payload).then((r) => r.data),
+  updateProgram: (programId, payload) =>
+    api.patch(`/api/v1/summit/programs/${programId}`, payload).then((r) => r.data),
+  deleteProgram: (programId) => api.delete(`/api/v1/summit/programs/${programId}`),
+
+  // Work plans
+  createWorkPlan: (logDate, payload) =>
+    api.post(`/api/v1/summit/day/${logDate}/work-plans`, payload).then((r) => r.data),
+  updateWorkPlan: (planId, payload) =>
+    api.patch(`/api/v1/summit/work-plans/${planId}`, payload).then((r) => r.data),
+  deleteWorkPlan: (planId) => api.delete(`/api/v1/summit/work-plans/${planId}`),
+
+  // Log items
+  createLogItem: (logDate, payload) =>
+    api.post(`/api/v1/summit/day/${logDate}/items`, payload).then((r) => r.data),
+  updateLogItem: (itemId, payload) =>
+    api.patch(`/api/v1/summit/items/${itemId}`, payload).then((r) => r.data),
+  deleteLogItem: (itemId) => api.delete(`/api/v1/summit/items/${itemId}`),
+
+  // Search
+  search: (params = {}) => {
+    const { q, from_date, to_date, crew_tab, limit = 50, offset = 0 } = params;
+    return api
+      .get('/api/v1/summit/search', { params: { q, from_date, to_date, crew_tab, limit, offset } })
+      .then((r) => r.data);
+  },
+};
+
 // Health check
 export const healthCheck = async () => {
   const response = await api.get('/health');
   return response.data;
+};
+
+// Auth API — mirrors PHP login2.php / logout.php / door.php
+export const authAPI = {
+  login: (username, password) =>
+    api.post('/api/v1/auth/login', { username, password }),
+
+  logout: () =>
+    api.post('/api/v1/auth/logout'),
+
+  me: () =>
+    api.get('/api/v1/auth/me'),
 };
 
 export default api;

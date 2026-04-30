@@ -1,52 +1,113 @@
 """
-Database session configuration for MariaDB
+Database session configuration for MariaDB (FATS/reference) and Postgres (Summit Logging).
 """
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import QueuePool
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
 from app.core.config import settings
 
-# Create declarative base
-Base = declarative_base()
+logger = logging.getLogger(__name__)
 
-# Create async engine for MariaDB with timeout and connection management
-engine = create_async_engine(
-    settings.async_database_url,
-    echo=False,  # Disabled for better performance
-    poolclass=QueuePool,
-    pool_size=20,  # Increased for better concurrency
-    max_overflow=20,  # Increased overflow
-    pool_pre_ping=True,  # Verify connections before using
-    pool_recycle=1800,  # Recycle connections after 30 minutes
-    pool_timeout=60,  # Increased timeout for getting connection from pool
-    # Performance optimizations
-    pool_reset_on_return='commit',
-    # MariaDB specific settings
+# Keep separate declarative bases per database domain.
+Base = declarative_base()  # MariaDB models (existing FATS/reference)
+SummitBase = declarative_base()  # Postgres Summit Logging models
+
+# MariaDB engine/session (existing behavior)
+mariadb_engine = create_async_engine(
+    settings.mariadb_async_database_url,
+    echo=False,
+    pool_size=20,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_timeout=60,
     connect_args={
         "charset": "utf8mb4",
         "autocommit": False,
-        "connect_timeout": 10,  # Connection timeout in seconds (increased)
-    }
+        "connect_timeout": 10,
+    },
+)
+mariadb_async_session = sessionmaker(
+    mariadb_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
-# Create async session factory
-async_session = sessionmaker(
-    engine, 
-    class_=AsyncSession, 
-    expire_on_commit=False
+# Postgres engine/session (new Summit Logging domain)
+summit_engine = create_async_engine(
+    settings.summit_async_database_url,
+    echo=False,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_timeout=60,
+)
+summit_async_session = sessionmaker(
+    summit_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
 )
 
-async def get_db():
-    """
-    Dependency to get database session with proper cleanup
-    Note: Commits should be done explicitly in service methods, not here
-    """
-    async with async_session() as session:
+
+async def _session_dependency(session_factory):
+    async with session_factory() as session:
         try:
             yield session
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Database session error: {e}", exc_info=True)
-            await session.rollback()  # Rollback on error
+        except Exception as exc:
+            logger.error("Database session error: %s", exc, exc_info=True)
+            await session.rollback()
             raise
+
+
+async def get_mariadb_db():
+    """
+    MariaDB dependency for existing FATS/reference endpoints.
+    """
+    async for session in _session_dependency(mariadb_async_session):
+        yield session
+
+
+async def get_summit_db():
+    """
+    Postgres dependency for Summit Logging endpoints.
+    """
+    async for session in _session_dependency(summit_async_session):
+        yield session
+
+
+# clients engine/session (users, sessions, staff, props — legacy MariaDB)
+clients_engine = create_async_engine(
+    settings.clients_async_database_url,
+    echo=False,
+    pool_size=5,
+    max_overflow=5,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    pool_timeout=60,
+    connect_args={
+        "charset": "utf8mb4",
+        "autocommit": False,
+        "connect_timeout": 10,
+    },
+)
+clients_async_session = sessionmaker(
+    clients_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
+async def get_clients_db():
+    """
+    MariaDB dependency for the `clients` database
+    (users, sessions, staff, props, alloc, etc.)
+    """
+    async for session in _session_dependency(clients_async_session):
+        yield session
+
+
+# Backward-compatible aliases used by existing code.
+engine = mariadb_engine
+async_session = mariadb_async_session
+get_db = get_mariadb_db

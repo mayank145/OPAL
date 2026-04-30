@@ -10,7 +10,7 @@ import uvicorn
 
 from app.core.config import settings
 from app.core.logging_config import logger
-from app.api.v1 import fats, reference
+from app.api.v1 import auth, fats, reference, summit
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -65,8 +65,10 @@ app.add_middleware(
 )
 
 # Include API routers
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(fats.router, prefix="/api/v1/fats", tags=["FATS"])
 app.include_router(reference.router, prefix="/api/v1/reference", tags=["Reference Data"])
+app.include_router(summit.router, prefix="/api/v1/summit", tags=["Summit Logging"])
 
 # Mount static files for image serving (if needed for direct access)
 upload_dir = Path(settings.upload_dir)
@@ -95,7 +97,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "OPAL Unified System",
-        "database": "MariaDB"
+        "databases": ["MariaDB", "Postgres"]
     }
 
 # Database health check endpoint
@@ -104,15 +106,26 @@ async def health_check_db():
     """
     Database health check endpoint
     """
-    from app.db.session import engine
+    from app.db.session import mariadb_engine, summit_engine
     from sqlalchemy import text
+    db_status = {
+        "mariadb": "disconnected",
+        "postgres": "disconnected",
+    }
     try:
-        async with engine.connect() as conn:
+        async with mariadb_engine.connect() as conn:
             result = await conn.execute(text("SELECT 1"))
             result.fetchone()
+        db_status["mariadb"] = "connected"
+
+        async with summit_engine.connect() as conn:
+            result = await conn.execute(text("SELECT 1"))
+            result.fetchone()
+        db_status["postgres"] = "connected"
+
         return {
             "status": "healthy",
-            "database": "connected"
+            "databases": db_status
         }
     except Exception as e:
         logger.error(f"Database health check failed: {e}")
@@ -120,7 +133,7 @@ async def health_check_db():
             status_code=503,
             content={
                 "status": "unhealthy",
-                "database": "disconnected",
+                "databases": db_status,
                 "error": str(e) if settings.debug else "Database connection failed"
             }
         )

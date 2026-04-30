@@ -3,7 +3,7 @@ Application configuration settings
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Optional
+from typing import List
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -27,14 +27,50 @@ class Settings(BaseSettings):
     app_version: str = "1.0.0"
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
     
-    # Database - Use localhost if running locally, mariadb if in Docker
-    database_url: str = os.getenv("DATABASE_URL", "mysql+aiomysql://opal:opal_password@localhost:3306/opal")
-    async_database_url: str = os.getenv("ASYNC_DATABASE_URL", "mysql+aiomysql://opal:opal_password@localhost:3306/opal")
+    # MariaDB database (existing FATS/reference domain)
+    database_url: str = os.getenv(
+        "DATABASE_URL",
+        "mysql+aiomysql://opal:opal_password@localhost:3306/opal"
+    )
+    async_database_url: str = os.getenv(
+        "ASYNC_DATABASE_URL",
+        "mysql+aiomysql://opal:opal_password@localhost:3306/opal"
+    )
+    mariadb_async_database_url: str = os.getenv("MARIADB_ASYNC_DATABASE_URL", async_database_url)
+
+    # Postgres database (new Summit Logging domain)
+    summit_async_database_url: str = os.getenv(
+        "SUMMIT_ASYNC_DATABASE_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/opal_summit"
+    )
+    # Sync URL for one-off ETL (psycopg2). Defaults from SUMMIT_ASYNC_DATABASE_URL if unset.
+    summit_sync_database_url: str = os.getenv("SUMMIT_SYNC_DATABASE_URL", "")
+
+    # Legacy MariaDB `sumlogs` (Summit) — used by migrate_sumlogs_to_postgres.py
+    sumlogs_database_url: str = os.getenv("SUMLOGS_DATABASE_URL", "")
+
+    # MariaDB `clients` database — holds users, sessions, staff, props, etc.
+    clients_async_database_url: str = os.getenv(
+        "CLIENTS_ASYNC_DATABASE_URL",
+        "mysql+aiomysql://opal:opal_password@localhost:3306/clients"
+    )
     
     # Security
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
     algorithm: str = "HS256"
     access_token_expire_hours: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
+
+    # LDAP
+    ldap_host: str = os.getenv("LDAP_HOST", "ldap.subaru.nao.ac.jp")
+    ldap_port: int = int(os.getenv("LDAP_PORT", "389"))
+    ldap_people_dn: str = os.getenv("LDAP_PEOPLE_DN", "ou=People,dc=subaru,dc=nao,dc=ac,dc=jp")
+    ldap_group_dn: str = os.getenv("LDAP_GROUP_DN", "ou=group,dc=subaru,dc=nao,dc=ac,dc=jp")
+
+    # Session cookie
+    cookie_name: str = "opal_session"
+    cookie_secure: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+    cookie_httponly: bool = True
+    cookie_samesite: str = "lax"
     
     # File Upload Settings
     upload_dir: str = os.getenv("UPLOAD_DIR", "uploads")

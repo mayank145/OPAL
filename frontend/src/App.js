@@ -10,17 +10,27 @@ import {
   Tabs,
   Tab,
   IconButton,
+  ToggleButton,
+  ToggleButtonGroup,
+  Button,
+  Stack,
+  Chip,
+  Tooltip,
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Logout as LogoutIcon } from '@mui/icons-material';
 import FATSList from './components/FATSList';
 import FATSDetail from './components/FATSDetail';
 import FATSDetailInline from './components/FATSDetailInline';
 import CommentDialog from './components/CommentDialog';
 import ConfirmationDialog from './components/ConfirmationDialog';
 import FullFaultsList from './components/FullFaultsList';
+import SummitLog from './components/SummitLog';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 // import { fatsAPI } from './services/api'; // Available for future use
 
-function App() {
+function AppContent() {
+  const { user, logout } = useAuth();
   const [fatsDetailOpen, setFatsDetailOpen] = useState(false);
   const [fatsDetailMode, setFatsDetailMode] = useState('view');
   const [selectedFatsId, setSelectedFatsId] = useState(null);
@@ -31,6 +41,9 @@ function App() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [fullFaultsListOpen, setFullFaultsListOpen] = useState(false);
   
+  // Main area: FATS vs Summit Log
+  const [mainView, setMainView] = useState('fats');
+
   // Tab management
   const [activeTab, setActiveTab] = useState(0);
   const [openTabs, setOpenTabs] = useState([{ id: 'main', label: 'FATS Entries' }]);
@@ -151,36 +164,16 @@ function App() {
       <Box>
         {/* Main FATS List page - Keep mounted but hide when not active */}
         <Box sx={{ display: currentTab.id === 'main' ? 'block' : 'none' }}>
-          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-            <button
-              onClick={() => setFullFaultsListOpen(true)}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#1976d2',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
-              }}
-            >
-              Faults List
-            </button>
-            <button
-              onClick={handleCreateFATS}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#1976d2',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '14px',
-              }}
-            >
-              + Create New FATS
-            </button>
-          </Box>
+          <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ mb: 2 }}>
+            <Button variant="outlined" onClick={() => setFullFaultsListOpen(true)}
+              sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}>
+              📋 Faults List
+            </Button>
+            <Button variant="contained" onClick={handleCreateFATS}
+              sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}>
+              ＋ Create New FATS
+            </Button>
+          </Stack>
           <FATSList
             ref={fatsListRef}
             onViewFATS={handleViewFATS}
@@ -213,52 +206,131 @@ function App() {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f5f5f5' }}>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Fault Tracking System
-          </Typography>
+    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
+      <AppBar position="static" elevation={0}
+        sx={{ background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+        <Toolbar sx={{ minHeight: 60 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+              🔭
+            </Box>
+            <Box>
+              <Typography variant="h6" component="div" sx={{ fontWeight: 700, letterSpacing: 0.5, lineHeight: 1.1 }}>
+                OPAL
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.75, letterSpacing: 1, textTransform: 'uppercase', fontSize: '0.6rem' }}>
+                Subaru Telescope Operations
+              </Typography>
+            </Box>
+          </Box>
+          <ToggleButtonGroup
+            value={mainView}
+            exclusive
+            size="small"
+            onChange={(e, v) => v != null && setMainView(v)}
+            aria-label="main view"
+            sx={{
+              bgcolor: 'rgba(0,0,0,0.2)',
+              borderRadius: 2,
+              '& .MuiToggleButton-root': {
+                color: 'rgba(255,255,255,0.7)',
+                border: 'none',
+                px: 2,
+                py: 0.6,
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                textTransform: 'none',
+                borderRadius: '8px !important',
+                transition: 'all 0.2s',
+              },
+              '& .MuiToggleButton-root.Mui-selected': {
+                bgcolor: 'rgba(255,255,255,0.2)',
+                color: '#fff',
+                boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)',
+              },
+            }}
+          >
+            <ToggleButton value="fats">⚡ FATS</ToggleButton>
+            <ToggleButton value="summit">🌙 Summit Log</ToggleButton>
+          </ToggleButtonGroup>
+
+          {/* User info + logout */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+            {user && (
+              <Chip
+                label={user.username}
+                size="small"
+                sx={{
+                  color: '#fff',
+                  bgcolor: 'rgba(255,255,255,0.15)',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                }}
+              />
+            )}
+            <Tooltip title="Logout">
+              <IconButton
+                onClick={logout}
+                size="small"
+                sx={{ color: 'rgba(255,255,255,0.8)', '&:hover': { color: '#fff' } }}
+                aria-label="logout"
+              >
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Toolbar>
       </AppBar>
 
-      {/* Tabs Bar */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-        <Tabs
-          value={activeTab}
-          onChange={handleTabChange}
-          variant="scrollable"
-          scrollButtons="auto"
-          aria-label="fault tabs"
-        >
-          {openTabs.map((tab, index) => (
-            <Tab
-              key={tab.id}
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {tab.label}
-                  {tab.id !== 'main' && (
-                    <IconButton
-                      size="small"
-                      onClick={(e) => handleCloseTab(index, e)}
-                      sx={{ 
-                        ml: 0.5, 
-                        p: 0.25,
-                        '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' }
-                      }}
-                    >
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </Box>
-              }
-            />
-          ))}
-        </Tabs>
-      </Box>
+      {/* Tabs Bar (FATS only) */}
+      {mainView === 'fats' && (
+        <Box sx={{ borderBottom: '2px solid', borderColor: 'divider', bgcolor: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+          <Tabs
+            value={activeTab}
+            onChange={handleTabChange}
+            variant="scrollable"
+            scrollButtons="auto"
+            aria-label="fault tabs"
+            sx={{
+              '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, minHeight: 46 },
+              '& .MuiTabs-indicator': { height: 3, borderRadius: '3px 3px 0 0' },
+            }}
+          >
+            {openTabs.map((tab, index) => (
+              <Tab
+                key={tab.id}
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {tab.label}
+                    {tab.id !== 'main' && (
+                      <IconButton
+                        size="small"
+                        onClick={(e) => handleCloseTab(index, e)}
+                        sx={{
+                          ml: 0.5,
+                          p: 0.25,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
+                        }}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
+                }
+              />
+            ))}
+          </Tabs>
+        </Box>
+      )}
 
       <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-        {renderTabContent()}
+        {mainView === 'summit' ? (
+          <SummitLog onError={(msg, severity) => showSnackbar(msg, severity)} />
+        ) : (
+          renderTabContent()
+        )}
 
         {/* FATS Detail Dialog */}
         <FATSDetail
@@ -315,6 +387,16 @@ function App() {
         </Snackbar>
       </Container>
     </Box>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <ProtectedRoute>
+        <AppContent />
+      </ProtectedRoute>
+    </AuthProvider>
   );
 }
 

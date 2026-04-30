@@ -1,4 +1,4 @@
 # API v1 endpoints
-from . import fats, reference
+from . import auth, fats, reference, summit
 
-__all__ = ["fats", "reference"]
+__all__ = ["auth", "fats", "reference", "summit"]

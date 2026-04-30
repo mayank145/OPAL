@@ -8,6 +8,8 @@ pydantic-settings==2.1.0
 sqlalchemy==2.0.23
 aiomysql==0.2.0
 pymysql==1.1.0
+asyncpg
+psycopg2-binary>=2.9.9
 alembic==1.13.1
 greenlet>=2.0.0  # Required for SQLAlchemy async operations
 
@@ -15,6 +17,7 @@ greenlet>=2.0.0  # Required for SQLAlchemy async operations
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
+ldap3==2.9.1
 
 # HTTP Client
 httpx==0.25.2
