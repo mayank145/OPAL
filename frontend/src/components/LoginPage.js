@@ -37,6 +37,7 @@ const SLIDES = [
   { src: '/slideshow/s09.png', credit: 'Subaru Telescope — Maunakea summit in snow' },
   { src: '/slideshow/s10.png', credit: 'Subaru Telescope at golden sunset' },
   { src: '/slideshow/s11.png', credit: 'Aerial view — Subaru Telescope, Maunakea' },
+  { src: '/slideshow/s12.png', credit: 'Sunset over Maunakea observatories' },
 ];
 
 const INTERVAL_MS   = 6000;   // time each slide is shown
