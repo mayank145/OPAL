@@ -26,18 +26,18 @@ import { useAuth } from '../context/AuthContext';
 // ─── Slideshow images ─────────────────────────────────────────────────────────
 
 const SLIDES = [
-  { src: '/slideshow/s01.png', credit: 'Comet Tsuchinshan-ATLAS over Subaru Telescope' },
-  { src: '/slideshow/s02.png', credit: 'Milky Way above Subaru Telescope' },
-  { src: '/slideshow/s03.png', credit: 'Subaru Telescope at sunset' },
-  { src: '/slideshow/s04.png', credit: 'Summit sunset, Maunakea' },
-  { src: '/slideshow/s05.png', credit: 'Milky Way — Subaru Telescope wide' },
-  { src: '/slideshow/s06.png', credit: 'Milky Way with laser guide star' },
-  { src: '/slideshow/s08.png', credit: 'Comet and laser over Maunakea' },
-  { src: '/slideshow/s09.png', credit: 'Subaru Telescope — Maunakea summit in snow' },
-  { src: '/slideshow/s10.png', credit: 'Subaru Telescope at golden sunset' },
-  { src: '/slideshow/s11.png', credit: 'Aerial view — Subaru Telescope, Maunakea' },
-  { src: '/slideshow/s12.png', credit: 'Sunset over Maunakea observatories' },
-  { src: '/slideshow/s13.png', credit: 'Shadow of Maunakea at sunset — Subaru Telescope' },
+  { src: '/slideshow/s01.png', credit: 'Comet Tsuchinshan-ATLAS over Subaru Telescope', author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s02.png', credit: 'Milky Way above Subaru Telescope',               author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s03.png', credit: 'Subaru Telescope at sunset',                      author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s04.png', credit: 'Summit sunset, Maunakea',                         author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s05.png', credit: 'Milky Way — Subaru Telescope wide',               author: 'Sebastian Egner' },
+  { src: '/slideshow/s06.png', credit: 'Milky Way with laser guide star',                 author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s08.png', credit: 'Comet and laser over Maunakea',                   author: 'Hideaki Fujiwara' },
+  { src: '/slideshow/s09.png', credit: 'Subaru Telescope — Maunakea summit in snow',      author: null },
+  { src: '/slideshow/s10.png', credit: 'Subaru Telescope at golden sunset',               author: null },
+  { src: '/slideshow/s11.png', credit: 'Aerial view — Subaru Telescope, Maunakea',       author: null },
+  { src: '/slideshow/s12.png', credit: 'Sunset over Maunakea observatories',              author: null },
+  { src: '/slideshow/s13.png', credit: 'Shadow of Maunakea at sunset — Subaru Telescope', author: null },
 ];
 
 const INTERVAL_MS   = 6000;   // time each slide is shown
@@ -202,18 +202,25 @@ export default function LoginPage() {
           bottom: 40,
           right: 16,
           zIndex: 5,
+          textAlign: 'right',
         }}
       >
         <Typography
           variant="caption"
-          sx={{
-            color: 'rgba(255,255,255,0.45)',
-            fontSize: '0.62rem',
-            fontStyle: 'italic',
-          }}
+          display="block"
+          sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.62rem', fontStyle: 'italic' }}
         >
           {SLIDES[current].credit}
         </Typography>
+        {SLIDES[current].author && (
+          <Typography
+            variant="caption"
+            display="block"
+            sx={{ color: 'rgba(255,255,255,0.75)', fontSize: '0.62rem', fontWeight: 600 }}
+          >
+            📷 {SLIDES[current].author} / NAOJ
+          </Typography>
+        )}
       </Box>
 
       {/* ── Login card — frosted dark glass ── */}
