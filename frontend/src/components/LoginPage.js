@@ -31,7 +31,7 @@ const SLIDES = [
   { src: '/slideshow/s03.png', credit: 'Subaru Telescope at sunset',                      author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s04.png', credit: 'Summit sunset, Maunakea',                         author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s05.png', credit: 'Milky Way — Subaru Telescope wide',               author: 'Sebastian Egner' },
-  { src: '/slideshow/s06.png', credit: 'Milky Way with laser guide star',                 author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s06.png', credit: 'Comet Tsuchinshan-ATLAS over Maunakea observatories', author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s08.png', credit: 'Comet and laser over Maunakea',                   author: 'Hideaki Fujiwara' },
   { src: '/slideshow/s09.png', credit: 'Subaru Telescope — Maunakea summit in snow',      author: null },
   { src: '/slideshow/s10.png', credit: 'Subaru Telescope at golden sunset',               author: null },
