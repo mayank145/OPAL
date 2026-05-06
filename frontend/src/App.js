@@ -43,6 +43,8 @@ function AppContent() {
   
   // Main area: FATS vs Summit Log
   const [mainView, setMainView] = useState('fats');
+  /** Prefill for FATS create when opened from a Summit log entry */
+  const [fatsCreateDraft, setFatsCreateDraft] = useState(null);
 
   // Tab management
   const [activeTab, setActiveTab] = useState(0);
@@ -113,15 +115,56 @@ function AppContent() {
   };
 
   const handleEditFATS = (idno) => {
+    setFatsCreateDraft(null);
     setSelectedFatsId(idno);
     setFatsDetailMode('edit');
     setFatsDetailOpen(true);
   };
 
   const handleCreateFATS = () => {
+    setFatsCreateDraft(null);
     setSelectedFatsId(null);
     setFatsDetailMode('create');
     setFatsDetailOpen(true);
+  };
+
+  const escapeHtmlForFats = (s) => {
+    if (!s) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  };
+
+  const handleCreateFatsFromSummit = ({ item, logDate }) => {
+    const title = (item.title && String(item.title).trim()) || 'Summit log entry';
+    const body = (item.body && String(item.body).trim()) || '';
+    const idescribe = body
+      ? `<p>${escapeHtmlForFats(body).replace(/\n/g, '<br/>')}</p>`
+      : `<p><em>Summit log ${logDate}</em></p>`;
+    const todoParts = [
+      `From summit log ${logDate}`,
+      item.crew_tab ? `Tab: ${item.crew_tab}` : null,
+      item.item_type ? `Type: ${item.item_type}` : null,
+      item.subsystem && item.subsystem !== 'None' ? `Subsystem: ${item.subsystem}` : null,
+      item.downtime_minutes > 0 ? `Downtime: ${item.downtime_minutes} min` : null,
+    ].filter(Boolean);
+    setFatsCreateDraft({
+      issue: title.slice(0, 500),
+      idescribe,
+      todo: todoParts.join(' · '),
+      operator: user?.username || '',
+    });
+    setMainView('fats');
+    setSelectedFatsId(null);
+    setFatsDetailMode('create');
+    setFatsDetailOpen(true);
+  };
+
+  const handleFatsDetailClose = () => {
+    setFatsDetailOpen(false);
+    setFatsCreateDraft(null);
   };
 
   const handleAddComment = (fatsId) => {
@@ -329,7 +372,10 @@ function AppContent() {
 
       <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
         {mainView === 'summit' ? (
-          <SummitLog onError={(msg, severity) => showSnackbar(msg, severity)} />
+          <SummitLog
+            onError={(msg, severity) => showSnackbar(msg, severity)}
+            onCreateFatsFromSummit={handleCreateFatsFromSummit}
+          />
         ) : (
           renderTabContent()
         )}
@@ -339,9 +385,10 @@ function AppContent() {
           open={fatsDetailOpen}
           fatsId={selectedFatsId}
           mode={fatsDetailMode}
-          onClose={() => setFatsDetailOpen(false)}
+          onClose={handleFatsDetailClose}
           onSave={handleFATSSave}
           onFaultReferenceClick={handleViewFATS}
+          createDraft={fatsCreateDraft}
         />
 
         {/* Comment Dialog */}

@@ -31,13 +31,16 @@ def _validate_crew_role(v: str) -> str:
 # ── Summit Day ──────────────────────────────────────────────────────────────────
 class SummitDayCreate(BaseModel):
     log_date: date
-    day_label: Optional[str] = Field(None, max_length=10)
+    day_label: Optional[str] = Field(None, max_length=80)
     history_text: Optional[str] = None
 
 
 class SummitDayUpdate(BaseModel):
-    day_label: Optional[str] = Field(None, max_length=10)
+    day_label: Optional[str] = Field(None, max_length=80)
     history_text: Optional[str] = None
+    zoom_meeting_id: Optional[str] = Field(None, max_length=64)
+    zoom_password: Optional[str] = Field(None, max_length=64)
+    zoom_join_url: Optional[str] = None
 
 
 class SummitMonthlyDayResponse(BaseModel):
@@ -45,8 +48,12 @@ class SummitMonthlyDayResponse(BaseModel):
     log_date: date
     day_label: Optional[str] = None
     history_text: Optional[str] = None
+    zoom_meeting_id: Optional[str] = None
+    zoom_password: Optional[str] = None
+    zoom_join_url: Optional[str] = None
     entry_count: int = 0
     total_downtime: int = 0
+    first_instr: Optional[str] = None  # first observation program instrument (year view)
 
     class Config:
         from_attributes = True
@@ -199,13 +206,29 @@ class ObservationProgramResponse(BaseModel):
 
 # ── Work Plans ──────────────────────────────────────────────────────────────────
 class WorkPlanCreate(BaseModel):
+    # Plan header
+    requestor: Optional[str] = Field(None, max_length=40)
+    wp_status: Optional[str] = Field(None, max_length=20)
+    wp_type: Optional[str] = Field(None, max_length=20)
+    wp_subsystem: Optional[str] = Field(None, max_length=20)
+    plan_text: Optional[str] = None
+    day_warning: Optional[str] = Field(None, max_length=200)
+    nite_warning: Optional[str] = Field(None, max_length=200)
+    teampass: Optional[str] = Field(None, max_length=80)
+    realstart: Optional[datetime] = None
+    realend: Optional[datetime] = None
+    req_flags: Optional[str] = None        # comma-separated
+    lockout_flags: Optional[str] = None    # comma-separated
+    # Timing
     window_start: Optional[datetime] = None
     window_end: Optional[datetime] = None
+    # Effects & Location
     nite_effect: Optional[str] = Field(None, max_length=100)
     day_effect: Optional[str] = Field(None, max_length=100)
     location: Optional[str] = Field(None, max_length=20)
     location2: Optional[str] = Field(None, max_length=20)
     location3: Optional[str] = Field(None, max_length=20)
+    # Personnel
     assigned1: Optional[str] = Field(None, max_length=30)
     assigned2: Optional[str] = Field(None, max_length=50)
     dcassist: Optional[str] = Field(None, max_length=10)
@@ -214,8 +237,22 @@ class WorkPlanCreate(BaseModel):
     contact2: Optional[str] = Field(None, max_length=50)
     others: Optional[str] = Field(None, max_length=50)
     otherreq: Optional[str] = Field(None, max_length=40)
+    # Title & Completion
     comptitle: Optional[str] = Field(None, max_length=200)
     comptext: Optional[str] = None
+    completion_title: Optional[str] = Field(None, max_length=200)
+    # Classification
+    intervene: Optional[str] = Field(None, max_length=20)
+    melco: Optional[str] = Field(None, max_length=20)
+    fai: Optional[str] = Field(None, max_length=20)
+    master: Optional[int] = None
+    # Transport
+    seats: Optional[int] = None
+    seats2: Optional[int] = None
+    pseats: Optional[int] = None
+    pass_text: Optional[str] = Field(None, max_length=80)
+    rpass_text: Optional[str] = Field(None, max_length=80)
+    # Notes
     requirements: Optional[str] = None
     notes: Optional[str] = None
 
@@ -227,6 +264,18 @@ class WorkPlanUpdate(WorkPlanCreate):
 class WorkPlanResponse(BaseModel):
     id: UUID
     summit_day_id: UUID
+    requestor: Optional[str] = None
+    wp_status: Optional[str] = None
+    wp_type: Optional[str] = None
+    wp_subsystem: Optional[str] = None
+    plan_text: Optional[str] = None
+    day_warning: Optional[str] = None
+    nite_warning: Optional[str] = None
+    teampass: Optional[str] = None
+    realstart: Optional[datetime] = None
+    realend: Optional[datetime] = None
+    req_flags: Optional[str] = None
+    lockout_flags: Optional[str] = None
     window_start: Optional[datetime] = None
     window_end: Optional[datetime] = None
     nite_effect: Optional[str] = None
@@ -244,6 +293,16 @@ class WorkPlanResponse(BaseModel):
     otherreq: Optional[str] = None
     comptitle: Optional[str] = None
     comptext: Optional[str] = None
+    completion_title: Optional[str] = None
+    intervene: Optional[str] = None
+    melco: Optional[str] = None
+    fai: Optional[str] = None
+    master: Optional[int] = None
+    seats: Optional[int] = None
+    seats2: Optional[int] = None
+    pseats: Optional[int] = None
+    pass_text: Optional[str] = None
+    rpass_text: Optional[str] = None
     requirements: Optional[str] = None
     notes: Optional[str] = None
 
@@ -265,6 +324,7 @@ class LogItemCreate(BaseModel):
     history_text: Optional[str] = None
     comment_text: Optional[str] = None
     work_plan_id: Optional[UUID] = None
+    summit_access: Optional[str] = Field(None, max_length=20)
 
     @field_validator("crew_tab")
     @classmethod
@@ -285,6 +345,7 @@ class LogItemUpdate(BaseModel):
     history_text: Optional[str] = None
     comment_text: Optional[str] = None
     work_plan_id: Optional[UUID] = None
+    summit_access: Optional[str] = Field(None, max_length=20)
 
     @field_validator("crew_tab")
     @classmethod
@@ -311,6 +372,7 @@ class LogItemResponse(BaseModel):
     created_by: Optional[str] = None
     history_text: Optional[str] = None
     comment_text: Optional[str] = None
+    summit_access: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     log_date: Optional[date] = None  # populated in search results
@@ -343,6 +405,9 @@ class SummitDailyViewResponse(BaseModel):
     log_date: date
     day_label: Optional[str] = None
     history_text: Optional[str] = None
+    zoom_meeting_id: Optional[str] = None
+    zoom_password: Optional[str] = None
+    zoom_join_url: Optional[str] = None
     entry_count: int = 0
     total_downtime: int = 0
 

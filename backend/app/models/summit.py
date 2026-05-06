@@ -44,8 +44,11 @@ class SummitDay(SummitBase):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     legacy_day_id = Column(Integer, unique=True, index=True)
     log_date = Column(Date, nullable=False, unique=True, index=True)
-    day_label = Column(String(10))
+    day_label = Column(String(80))
     history_text = Column(Text)
+    zoom_meeting_id = Column(String(64))
+    zoom_password = Column(String(64))
+    zoom_join_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -150,6 +153,22 @@ class WorkPlan(SummitBase):
     window_start = Column(DateTime(timezone=True))
     window_end = Column(DateTime(timezone=True))
 
+    # Plan header
+    requestor = Column(String(40))
+    wp_status = Column(String(20))          # Planned / InProgress / Completed / Cancelled
+    wp_type = Column(String(20))
+    wp_subsystem = Column(String(20))
+    plan_text = Column(Text)               # description of the work
+    day_warning = Column(String(200))
+    nite_warning = Column(String(200))
+    teampass = Column(String(80))
+    realstart = Column(DateTime(timezone=True))
+    realend = Column(DateTime(timezone=True))
+
+    # Required / LockOut flags (comma-separated keys)
+    req_flags = Column(Text)              # e.g. "Move-Tel,Move-EL,80t-Crane"
+    lockout_flags = Column(Text)          # e.g. "No-Tel-Move,No-AZ-Move"
+
     nite_effect = Column(String(100))
     day_effect = Column(String(100))
     location = Column(String(20))
@@ -163,12 +182,13 @@ class WorkPlan(SummitBase):
     contact2 = Column(String(50))
     others = Column(String(50))
     otherreq = Column(String(40))
-    comptitle = Column(String(200))
-    comptext = Column(Text)
+    comptitle = Column(String(200))        # plan title (legacy: Plan Title)
+    comptext = Column(Text)                # completion text
+    completion_title = Column(String(200)) # filled after completion
     master = Column(Integer)
     intervene = Column(String(20))
-    melco = Column(String(3))
-    fai = Column(String(3))
+    melco = Column(String(20))
+    fai = Column(String(20))
     seats = Column(Integer)
     seats2 = Column(Integer)
     pseats = Column(Integer)
@@ -198,6 +218,7 @@ class LogItem(SummitBase):
     created_by = Column(String(20))
     history_text = Column(Text)
     comment_text = Column(Text)
+    summit_access = Column(String(20))
     created_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True))
 

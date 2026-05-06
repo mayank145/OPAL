@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     ldap_people_dn: str = os.getenv("LDAP_PEOPLE_DN", "ou=People,dc=subaru,dc=nao,dc=ac,dc=jp")
     ldap_group_dn: str = os.getenv("LDAP_GROUP_DN", "ou=group,dc=subaru,dc=nao,dc=ac,dc=jp")
 
+    # Dev-mode local user bypass (only active when DEBUG=true)
+    # Format: "username:password,username2:password2"
+    dev_local_users: str = os.getenv("DEV_LOCAL_USERS", "")
+
     # Session cookie
     cookie_name: str = "opal_session"
     cookie_secure: bool = os.getenv("COOKIE_SECURE", "false").lower() == "true"

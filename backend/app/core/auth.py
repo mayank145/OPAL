@@ -44,13 +44,36 @@ def is_o_account(username: str) -> bool:
 # LDAP credential validation (port of PHP ldap_validate($user, $pw))
 # ---------------------------------------------------------------------------
 
+def _check_dev_local_user(username: str, password: str) -> bool:
+    """
+    In DEBUG mode, allow login via DEV_LOCAL_USERS env var.
+    Format: "user1:pass1,user2:pass2"
+    """
+    if not settings.debug or not settings.dev_local_users:
+        return False
+    for entry in settings.dev_local_users.split(","):
+        entry = entry.strip()
+        if ":" not in entry:
+            continue
+        u, p = entry.split(":", 1)
+        if u.strip() == username and p.strip() == password:
+            logger.info("Dev local user bypass for: %s", username)
+            return True
+    return False
+
+
 def ldap_validate(username: str, password: str) -> bool:
     """
     Attempt a simple-bind against the Subaru LDAP server.
+    In DEBUG mode, DEV_LOCAL_USERS entries bypass LDAP entirely.
     Returns True on success, False on any failure.
     """
     if not password:
         return False
+
+    # Dev bypass — skip LDAP when running locally
+    if _check_dev_local_user(username, password):
+        return True
 
     user_dn = f"uid={username},{settings.ldap_people_dn}"
     try:
@@ -87,8 +110,16 @@ def get_ldap_groups(username: str) -> tuple[str, str]:
     Search LDAP for all groups that contain the user and derive
     logcrew + privy exactly as login2.php did.
 
+    In DEBUG mode, dev-bypass users get admin/TO privileges without LDAP.
     Returns (logcrew, privy).  Defaults: ('WP', 'none').
     """
+    # Dev bypass — grant TO + admin to any local dev user
+    if settings.debug and settings.dev_local_users:
+        for entry in settings.dev_local_users.split(","):
+            if ":" in entry and entry.strip().split(":", 1)[0].strip() == username:
+                logger.info("Dev local user group bypass for: %s → TO/admin", username)
+                return "TO", "admin"
+
     logcrew = "WP"
     privy = "none"
 

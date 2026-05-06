@@ -3,6 +3,7 @@ Business logic for Summit Logging — full CRUD for all entities.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime, timezone
 from typing import Any, List, Optional, Tuple
@@ -78,6 +79,55 @@ class SummitService:
             result.append({"day": d, "entry_count": ec, "total_downtime": dt})
         return result
 
+    async def get_yearly_days(self, db: AsyncSession, year: int) -> List[dict]:
+        """Year overview: day summaries plus first program instrument per day (legacy loglist style)."""
+        start_date = date(year, 1, 1)
+        end_date = date(year + 1, 1, 1)
+        days_stmt = (
+            select(SummitDay)
+            .where(SummitDay.log_date >= start_date, SummitDay.log_date < end_date)
+            .order_by(SummitDay.log_date.asc())
+        )
+        days = list((await db.execute(days_stmt)).scalars().all())
+        if not days:
+            return []
+
+        day_ids = [d.id for d in days]
+
+        counts_stmt = (
+            select(
+                LogItem.summit_day_id,
+                func.count(LogItem.id).label("entry_count"),
+                func.coalesce(func.sum(LogItem.downtime_minutes), 0).label("total_downtime"),
+            )
+            .where(LogItem.summit_day_id.in_(day_ids))
+            .group_by(LogItem.summit_day_id)
+        )
+        counts_rows = (await db.execute(counts_stmt)).all()
+        counts_map = {str(r.summit_day_id): (r.entry_count, r.total_downtime) for r in counts_rows}
+
+        prog_stmt = (
+            select(ObservationProgram.summit_day_id, ObservationProgram.instr, ObservationProgram.sort_order)
+            .where(ObservationProgram.summit_day_id.in_(day_ids))
+            .order_by(ObservationProgram.summit_day_id, ObservationProgram.sort_order.asc())
+        )
+        first_instr: dict[str, str] = {}
+        for row in (await db.execute(prog_stmt)).all():
+            sid = str(row.summit_day_id)
+            if sid not in first_instr and row.instr:
+                first_instr[sid] = row.instr.strip()
+
+        result = []
+        for d in days:
+            ec, dt = counts_map.get(str(d.id), (0, 0))
+            result.append({
+                "day": d,
+                "entry_count": ec,
+                "total_downtime": int(dt) if dt is not None else 0,
+                "first_instr": first_instr.get(str(d.id)),
+            })
+        return result
+
     async def create_summit_day(self, db: AsyncSession, log_date: date, day_label: Optional[str], history_text: Optional[str]) -> SummitDay:
         existing = await db.execute(select(SummitDay).where(SummitDay.log_date == log_date))
         if existing.scalar_one_or_none():
@@ -120,19 +170,18 @@ class SummitService:
             "total_downtime": total_downtime,
         }
 
-    async def update_summit_day(
-        self,
-        db: AsyncSession,
-        log_date: date,
-        *,
-        day_label: Optional[str] = None,
-        history_text: Optional[str] = None,
-    ) -> SummitDay:
+    async def update_summit_day(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> SummitDay:
         day = await self._get_day_header(db, log_date)
-        if day_label is not None:
-            day.day_label = _strip_nul(day_label)
-        if history_text is not None:
-            day.history_text = _strip_nul(history_text)
+        if "day_label" in data:
+            day.day_label = _strip_nul(data["day_label"])
+        if "history_text" in data:
+            day.history_text = _strip_nul(data["history_text"])
+        if "zoom_meeting_id" in data:
+            day.zoom_meeting_id = _strip_nul(data["zoom_meeting_id"])
+        if "zoom_password" in data:
+            day.zoom_password = _strip_nul(data["zoom_password"])
+        if "zoom_join_url" in data:
+            day.zoom_join_url = _strip_nul(data["zoom_join_url"])
         day.updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(day)
@@ -316,6 +365,7 @@ class SummitService:
         "assigned1", "assigned2", "dcassist", "notify",
         "contact1", "contact2", "others", "otherreq",
         "comptitle", "comptext", "requirements", "notes",
+        "intervene", "melco", "fai", "pass_text", "rpass_text",
     )
 
     def _apply_wp_data(self, wp: WorkPlan, data: dict[str, Any]) -> None:
@@ -325,6 +375,11 @@ class SummitService:
         for f in ("window_start", "window_end"):
             if f in data:
                 setattr(wp, f, data[f])
+        for f in ("master", "seats", "seats2", "pseats"):
+            if f in data and data[f] is not None:
+                setattr(wp, f, int(data[f]))
+            elif f in data and data[f] is None:
+                setattr(wp, f, None)
 
     async def create_work_plan(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> WorkPlan:
         day = await self._get_day_header(db, log_date)
@@ -388,6 +443,7 @@ class SummitService:
             created_by=data.get("created_by"),
             history_text=_strip_nul(data.get("history_text")),
             comment_text=_strip_nul(data.get("comment_text")),
+            summit_access=_strip_nul(data.get("summit_access")),
             created_at=now,
             updated_at=now,
         )
@@ -414,6 +470,8 @@ class SummitService:
         for field in ("title", "body", "history_text", "comment_text"):
             if field in data:
                 setattr(item, field, _strip_nul(data[field]))
+        if "summit_access" in data:
+            item.summit_access = _strip_nul(data["summit_access"])
         item.updated_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(item)
@@ -453,8 +511,19 @@ class SummitService:
             LogItem.title.ilike(pat, escape="\\"),
             LogItem.body.ilike(pat, escape="\\"),
         )
+        fts_safe = re.sub(r"[^\w\s]", " ", qt, flags=re.UNICODE)
+        fts_safe = " ".join(fts_safe.split())[:500]
+        if fts_safe:
+            vec = func.to_tsvector(
+                "english",
+                func.concat_ws(" ", func.coalesce(LogItem.title, ""), func.coalesce(LogItem.body, "")),
+            )
+            fts_q = func.plainto_tsquery("english", fts_safe)
+            keyword_clause = or_(text_match, vec.op("@@")(fts_q))
+        else:
+            keyword_clause = text_match
 
-        filters: list = [text_match]
+        filters: list = [keyword_clause]
         if from_date is not None:
             filters.append(SummitDay.log_date >= from_date)
         if to_date is not None:

@@ -67,9 +67,34 @@ async def monthly(
                 history_text=d.history_text,
                 entry_count=e["entry_count"],
                 total_downtime=e["total_downtime"],
+                first_instr=None,
             )
         )
     return {"year": year, "month": month, "days": days_out}
+
+
+@router.get("/year/{year}", response_model=dict)
+async def yearly(
+    year: int,
+    db: AsyncSession = Depends(get_summit_db),
+):
+    """Year overview (legacy loglist): each day with counts, downtime, first program instrument."""
+    entries = await summit_service.get_yearly_days(db=db, year=year)
+    days_out = []
+    for e in entries:
+        d = e["day"]
+        days_out.append(
+            SummitMonthlyDayResponse(
+                id=d.id,
+                log_date=d.log_date,
+                day_label=d.day_label,
+                history_text=d.history_text,
+                entry_count=e["entry_count"],
+                total_downtime=e["total_downtime"],
+                first_instr=e.get("first_instr"),
+            )
+        )
+    return {"year": year, "days": days_out}
 
 
 # ── Summit Days ─────────────────────────────────────────────────────────────────
@@ -83,7 +108,10 @@ async def create_summit_day(
     day = await summit_service.create_summit_day(
         db, body.log_date, body.day_label, body.history_text
     )
-    return SummitMonthlyDayResponse(id=day.id, log_date=day.log_date, day_label=day.day_label, history_text=day.history_text)
+    return SummitMonthlyDayResponse(
+        id=day.id, log_date=day.log_date, day_label=day.day_label,
+        history_text=day.history_text,
+    )
 
 
 @router.get("/day/{log_date}", response_model=SummitDailyViewResponse)
@@ -96,6 +124,9 @@ async def day_view(log_date: date, db: AsyncSession = Depends(get_summit_db)):
         log_date=day.log_date,
         day_label=day.day_label,
         history_text=day.history_text,
+        zoom_meeting_id=day.zoom_meeting_id,
+        zoom_password=day.zoom_password,
+        zoom_join_url=day.zoom_join_url,
         entry_count=payload["entry_count"],
         total_downtime=payload["total_downtime"],
         crew_assignments=[CrewAssignmentResponse.model_validate(c) for c in payload["crew"]],
@@ -116,12 +147,14 @@ async def patch_summit_day(
 ):
     """Update summit day header fields (day_label, history_text)."""
     data = body.model_dump(exclude_unset=True)
-    day = await summit_service.update_summit_day(
-        db, log_date,
-        day_label=data.get("day_label"),
-        history_text=data.get("history_text"),
+    day = await summit_service.update_summit_day(db, log_date, data)
+    return SummitMonthlyDayResponse(
+        id=day.id, log_date=day.log_date, day_label=day.day_label,
+        history_text=day.history_text,
+        zoom_meeting_id=day.zoom_meeting_id,
+        zoom_password=day.zoom_password,
+        zoom_join_url=day.zoom_join_url,
     )
-    return SummitMonthlyDayResponse(id=day.id, log_date=day.log_date, day_label=day.day_label, history_text=day.history_text)
 
 
 # ── Crew Assignments ────────────────────────────────────────────────────────────
