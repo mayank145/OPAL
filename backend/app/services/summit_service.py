@@ -3,6 +3,7 @@ Business logic for Summit Logging — full CRUD for all entities.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import smtplib
 import uuid
@@ -694,12 +695,22 @@ class SummitService:
         msg["Subject"] = subject
         msg["Reply-To"] = settings.email_sender
 
-        last_error: Optional[str] = None
-        try:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
-                server.sendmail(settings.email_sender, recipients, msg.as_string())
-        except Exception as exc:
-            last_error = str(exc)
+        raw_msg = msg.as_string()
+        sender = settings.email_sender
+        host = settings.smtp_host
+        port = settings.smtp_port
+
+        def _send_blocking() -> Optional[str]:
+            try:
+                with smtplib.SMTP(host, port, timeout=15) as server:
+                    server.sendmail(sender, recipients, raw_msg)
+                return None
+            except Exception as exc:
+                return str(exc)
+
+        last_error: Optional[str] = await asyncio.get_event_loop().run_in_executor(
+            None, _send_blocking
+        )
 
         # Update EmailDelivery record
         now = datetime.now(timezone.utc)
