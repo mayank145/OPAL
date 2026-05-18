@@ -5,7 +5,9 @@ from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel
+
+from fastapi import APIRouter, Body, Depends, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -254,6 +256,57 @@ async def delete_work_plan(plan_id: UUID, db: AsyncSession = Depends(get_summit_
     await summit_service.delete_work_plan(db, plan_id)
 
 
+@router.get("/work-plans/recent", response_model=List[dict])
+async def get_recent_work_plans(
+    username: str = Query(..., description="Username to filter by (requestor / assigned1)"),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_summit_db),
+    current_user: dict = Depends(require_auth),
+):
+    """Return the last N work plans associated with a user (for Copy from Previous)."""
+    rows = await summit_service.get_recent_work_plans(db, username=username, limit=limit)
+    result = []
+    for r in rows:
+        wp_dict = WorkPlanResponse.model_validate(r["wp"]).model_dump()
+        wp_dict["log_date"] = r["log_date"]
+        result.append(wp_dict)
+    return result
+
+
+class CopyWorkPlanBody(BaseModel):
+    target_date: date
+
+
+@router.post("/work-plans/{plan_id}/copy", response_model=WorkPlanResponse, status_code=status.HTTP_201_CREATED)
+async def copy_work_plan(
+    plan_id: UUID,
+    body: CopyWorkPlanBody,
+    db: AsyncSession = Depends(get_summit_db),
+    current_user: dict = Depends(require_auth),
+):
+    """Duplicate a work plan onto a different log date."""
+    username = (current_user or {}).get("username") or "system"
+    wp = await summit_service.copy_work_plan(db, plan_id, body.target_date, username=username)
+    return WorkPlanResponse.model_validate(wp)
+
+
+class SendEmailBody(BaseModel):
+    email_type: str = "to"   # "to" | "dc" | "smoka"
+
+
+@router.post("/day/{log_date}/email/send")
+async def send_day_email(
+    log_date: date,
+    body: SendEmailBody,
+    db: AsyncSession = Depends(get_summit_db),
+    current_user: dict = Depends(require_auth),
+):
+    """Compose and send a night-log / DC / SMOKA email for the given day."""
+    username = (current_user or {}).get("username") or "system"
+    result = await summit_service.send_summit_email(db, log_date, body.email_type, username)
+    return result
+
+
 # ── Log Items ───────────────────────────────────────────────────────────────────
 @router.post("/day/{log_date}/items", response_model=LogItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_log_item(
@@ -279,7 +332,8 @@ async def patch_log_item(
     db: AsyncSession = Depends(get_summit_db),
     current_user: dict = Depends(require_auth),
 ):
-    item = await summit_service.update_log_item(db, item_id, body.model_dump(exclude_unset=True))
+    username = (current_user or {}).get("username") or "system"
+    item = await summit_service.update_log_item(db, item_id, body.model_dump(exclude_unset=True), username=username)
     return LogItemResponse.model_validate(item)
 
 

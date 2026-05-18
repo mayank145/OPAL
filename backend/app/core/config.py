@@ -76,6 +76,21 @@ class Settings(BaseSettings):
     cookie_httponly: bool = True
     cookie_samesite: str = "lax"
     
+    # Email / SMTP
+    smtp_host: str = os.getenv("SMTP_HOST", "mail.subaru.nao.ac.jp")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "25"))
+    email_sender: str = os.getenv("EMAIL_SENDER", "opal@naoj.org")
+    # Comma-separated recipient lists
+    email_summitlog_recipients: str = os.getenv(
+        "EMAIL_SUMMITLOG_RECIPIENTS", "summitlog@naoj.org"
+    )
+    email_smoka_recipients: str = os.getenv(
+        "EMAIL_SMOKA_RECIPIENTS", "smokalog@smoka.nao.ac.jp"
+    )
+    email_dc_recipients: str = os.getenv(
+        "EMAIL_DC_RECIPIENTS", "operators@naoj.org"
+    )
+
     # File Upload Settings
     upload_dir: str = os.getenv("UPLOAD_DIR", "uploads")
     fats_images_dir: str = os.getenv("FATS_IMAGES_DIR", "uploads/fats")

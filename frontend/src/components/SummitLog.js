@@ -5,20 +5,22 @@ import {
   TableCell, TableHead, TableRow, TableContainer, TextField,
   Stack, MenuItem, Select, FormControl, InputLabel, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Collapse, Link,
+  Collapse, Link, List, ListItem, ListItemButton, ListItemText,
+  Autocomplete,
 } from '@mui/material';
 import {
   ChevronLeft, ChevronRight, Today as TodayIcon,
   Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon,
   Save as SaveIcon, Cancel as CancelIcon, ExpandMore, ExpandLess,
-  PostAdd as PostAddIcon,
+  PostAdd as PostAddIcon, ContentCopy as ContentCopyIcon,
+  Email as EmailIcon, AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
 import { summitAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TYPE_OPTIONS = ['Comment', 'Trouble', 'Summary', 'Warning', 'Important'];
-const STATUS_OPTIONS = ['Completed', 'Incompleted', 'Cancelled'];
 const CREW_TABS = ['TO', 'IO', 'DC', 'WP', 'ALL', 'TO-IO'];
 const CREW_ROLES = ['TO', 'IO', 'DC'];
 const SUBSYSTEMS = ['None', 'Dome', 'Telescope', 'Instrument', 'AO', 'Electronics', 'Software', 'Other'];
@@ -391,6 +393,18 @@ const WP_TIME_OPTIONS = [
   '16:00','16:30','17:00','17:30','18:00','18:30','19:00','19:30',
   '20:00','20:30','21:00','21:30','22:00','22:30','23:00','23:30',
 ];
+// Window Start / End — 08:00 – 18:00 HST (30-min slots)
+const WP_WINDOW_TIME_OPTIONS = [
+  '', '08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30',
+  '12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30',
+  '16:00','16:30','17:00','17:30','18:00',
+];
+// Real Start / End — 08:00 – 17:00 HST (30-min slots)
+const WP_DAY_TIME_OPTIONS = [
+  '', '08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30',
+  '12:00','12:30','13:00','13:30','14:00','14:30','15:00','15:30',
+  '16:00','16:30','17:00',
+];
 const REQUIRED_FLAGS = [
   'Move-Tel','Move-EL','Move-AZ','80t-Crane','NsIR-Crane','SmallDoor-Crane',
   'BSIT','TUE-Opt-Crane','TUE-Opt-US','Gen2-Allocation','MirrorHatch','CherryPicker',
@@ -401,18 +415,27 @@ const LOCKOUT_FLAGS = [
   'No-TopScreen-Move','No-MirrorCover-Move','No-MainShutter','No-UnitSelector-Move',
 ];
 
-function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
-  const [staffList, setStaffList] = useState(['.none']);
+function WorkPlanDialog({ open, onClose, onSave, saving, initial = {}, currentUsername = '' }) {
+  // orgUsers: [{ username, display }] from clients.users where privy='subaru'
+  const [orgUsers, setOrgUsers] = useState([{ username: '.none', display: '— none —' }]);
+  const [staffLoading, setStaffLoading] = useState(false);
   useEffect(() => {
     if (open) {
+      setStaffLoading(true);
       import('../services/api').then(({ referenceAPI }) =>
-        referenceAPI.getStaff().then(list => setStaffList(list)).catch(() => {})
+        referenceAPI.getOrgUsers()
+          .then(list => setOrgUsers(list.length > 1 ? list : [{ username: '.none', display: '— none —' }]))
+          .catch(() => {})
+          .finally(() => setStaffLoading(false))
       );
     }
   }, [open]);
 
   const blank = {
-    comptitle: '', plan_text: '', requestor: '', contact2: '', others: '',
+    comptitle: '', plan_text: '',
+    // Pre-fill requestor with the logged-in user for new work plans
+    requestor: initial.id ? (initial.requestor || '') : (currentUsername || ''),
+    contact2: '', others: '',
     wp_status: 'Planned', wp_type: 'Comment', wp_subsystem: '-none-',
     windowStart: '', windowEnd: '',
     day_warning: '', nite_warning: '',
@@ -421,15 +444,20 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
     assigned1: '.none', assigned2: '',
     dcassist: '.none', notify: '.none',
     teampass: '', otherreq: '',
-    intervene: 'Choose', melco: '', fai: '',
-    master: '',
     realstart: '', realend: '',
     completion_title: '', comptext: '',
     req_flags: '', lockout_flags: '',
     notes: '',
   };
   const [form, setForm] = useState({ ...blank, ...initial });
-  useEffect(() => { setForm({ ...blank, ...initial }); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setForm({
+      ...blank,
+      ...initial,
+      // Always keep requestor as current user for new WPs
+      requestor: initial.id ? (initial.requestor || '') : (currentUsername || initial.requestor || ''),
+    });
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const f = (key) => ({ size: 'small', value: form[key] || '', onChange: (e) => setForm((p) => ({ ...p, [key]: e.target.value })) });
   const sel = (key, opts, label, minW = 110) => (
@@ -441,12 +469,12 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
       </Select>
     </FormControl>
   );
-  const timeSel = (key, label) => (
+  const timeSel = (key, label, opts = WP_TIME_OPTIONS) => (
     <FormControl size="small" sx={{ flex: 1, minWidth: 110 }}>
       <InputLabel>{label}</InputLabel>
       <Select value={form[key] || ''} label={label}
         onChange={(e) => setForm(p => ({ ...p, [key]: e.target.value }))}>
-        {WP_TIME_OPTIONS.map(t => <MenuItem key={t} value={t}>{t || '— none —'}</MenuItem>)}
+        {opts.map(t => <MenuItem key={t} value={t}>{t || '— none —'}</MenuItem>)}
       </Select>
     </FormControl>
   );
@@ -480,7 +508,16 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
 
         {/* ── Requested section ── */}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-          <TextField {...f('requestor')} label="Requestor" sx={{ flex: 1, minWidth: 140 }} />
+          <TextField
+            {...f('requestor')}
+            label="Requestor"
+            sx={{ flex: 1, minWidth: 140 }}
+            InputProps={{
+              readOnly: !initial.id,
+              sx: !initial.id ? { bgcolor: '#f5f5f5', color: 'text.secondary' } : {},
+            }}
+            helperText={!initial.id ? 'Auto-filled from your account' : undefined}
+          />
           <TextField {...f('contact2')} label="DayCrew2" sx={{ flex: 1, minWidth: 120 }} />
           <TextField {...f('others')} label="Others" sx={{ flex: 1, minWidth: 120 }} />
         </Stack>
@@ -492,8 +529,8 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
         </Stack>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
-          {timeSel('windowStart', 'Start HST')}
-          {timeSel('windowEnd', 'End HST')}
+          {timeSel('windowStart', 'Start HST (08:00–18:00)', WP_WINDOW_TIME_OPTIONS)}
+          {timeSel('windowEnd',   'End HST (08:00–18:00)',   WP_WINDOW_TIME_OPTIONS)}
         </Stack>
 
         <TextField {...f('comptitle')} label="Plan Title" fullWidth sx={{ mb: 1 }} />
@@ -512,18 +549,66 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
 
         {/* ── Assigned section ── */}
         <SectionHeader label="Assigned" />
+        {staffLoading && (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <CircularProgress size={14} />
+            <Typography variant="caption" color="text.secondary">Loading Subaru Telescope staff list…</Typography>
+          </Stack>
+        )}
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
-          {sel('assigned1', staffList, 'Assigned 1')}
+          {/* Assigned 1 — searchable org user list */}
+          <Autocomplete
+            size="small"
+            sx={{ flex: 1, minWidth: 220 }}
+            options={orgUsers}
+            getOptionLabel={(o) => (typeof o === 'string' ? o : o.display)}
+            isOptionEqualToValue={(o, v) =>
+              (typeof o === 'string' ? o : o.username) === (typeof v === 'string' ? v : v.username)
+            }
+            value={orgUsers.find(u => u.username === (form.assigned1 || '.none')) || null}
+            onChange={(_, newVal) =>
+              setForm(p => ({ ...p, assigned1: newVal ? newVal.username : '.none' }))
+            }
+            renderInput={(params) => (
+              <TextField {...params} label="Assigned 1" placeholder="Type to search…" />
+            )}
+            filterOptions={(options, { inputValue }) => {
+              const q = inputValue.toLowerCase();
+              return options.filter(o => o.display.toLowerCase().includes(q));
+            }}
+            noOptionsText="No matching staff found"
+          />
           <TextField {...f('assigned2')} label="Assigned 2" sx={{ flex: 1 }} />
         </Stack>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }} alignItems="center">
           {sel('dcassist', WP_DCASSIST_OPTIONS, 'DC Assist')}
-          {sel('notify',   staffList, 'Notify')}
+          {/* Notify — searchable org user list */}
+          <Autocomplete
+            size="small"
+            sx={{ flex: 1, minWidth: 220 }}
+            options={orgUsers}
+            getOptionLabel={(o) => (typeof o === 'string' ? o : o.display)}
+            isOptionEqualToValue={(o, v) =>
+              (typeof o === 'string' ? o : o.username) === (typeof v === 'string' ? v : v.username)
+            }
+            value={orgUsers.find(u => u.username === (form.notify || '.none')) || null}
+            onChange={(_, newVal) =>
+              setForm(p => ({ ...p, notify: newVal ? newVal.username : '.none' }))
+            }
+            renderInput={(params) => (
+              <TextField {...params} label="Notify" placeholder="Type to search…" />
+            )}
+            filterOptions={(options, { inputValue }) => {
+              const q = inputValue.toLowerCase();
+              return options.filter(o => o.display.toLowerCase().includes(q));
+            }}
+            noOptionsText="No matching staff found"
+          />
           <TextField {...f('teampass')} label="Team Pass" sx={{ flex: 1 }} />
         </Stack>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
-          {timeSel('realstart', 'Real Start HST')}
-          {timeSel('realend', 'Real End HST')}
+          {timeSel('realstart', 'Real Start HST (08:00–17:00)', WP_DAY_TIME_OPTIONS)}
+          {timeSel('realend',   'Real End HST (08:00–17:00)',   WP_DAY_TIME_OPTIONS)}
         </Stack>
         <TextField {...f('completion_title')} label="Completion Title" fullWidth sx={{ mb: 1 }} />
         <TextField {...f('comptext')} label="Completion Text" multiline minRows={2} fullWidth sx={{ mb: 1 }} />
@@ -579,21 +664,6 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {} }) {
             ))}
           </Box>
         </Box>
-
-        {/* ── Classification ── */}
-        <SectionHeader label="Classification" />
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }} alignItems="center">
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <InputLabel>Summit Access</InputLabel>
-            <Select value={form.intervene || 'Choose'} label="Summit Access"
-              onChange={(e) => setForm((p) => ({ ...p, intervene: e.target.value }))}>
-              {INTERVENE_OPTIONS.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <TextField {...f('melco')} label="Melco Code" inputProps={{ maxLength: 20 }} sx={{ maxWidth: 120 }} />
-          <TextField {...f('fai')} label="FAI Code" inputProps={{ maxLength: 20 }} sx={{ maxWidth: 120 }} />
-          <TextField {...f('master')} label="Master" type="number" sx={{ maxWidth: 100 }} />
-        </Stack>
 
         {/* ── Notes ── */}
         <SectionHeader label="Notes" />
@@ -686,6 +756,16 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
   const [searchOffset, setSearchOffset] = useState(0);
   const SEARCH_LIMIT = 30;
   const [highlightItemId, setHighlightItemId] = useState(null);
+
+  // Copy Work Plan
+  const [recentWPs, setRecentWPs] = useState([]);
+  const [recentWPsLoading, setRecentWPsLoading] = useState(false);
+  const [copyWPOpen, setCopyWPOpen] = useState(false);
+
+  // Email sending
+  const [emailSending, setEmailSending] = useState(null); // 'to'|'dc'|'smoka'|null
+
+  const { user } = useAuth();
 
   const notify = useCallback((msg, severity = 'error') => {
     if (onError) onError(msg, severity);
@@ -1056,6 +1136,40 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
     if (!window.confirm('Delete this work plan?')) return;
     try { await summitAPI.deleteWorkPlan(id); notify('Work plan deleted', 'success'); await loadDay(selectedDate); }
     catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to delete work plan'); }
+  };
+
+  // ── Copy Work Plan ────────────────────────────────────────────────────────
+  const openCopyWP = async () => {
+    setCopyWPOpen(true);
+    if (recentWPs.length > 0) return;   // already loaded
+    setRecentWPsLoading(true);
+    try {
+      const username = user?.username || '';
+      const data = await summitAPI.getRecentWorkPlans(username, 20);
+      setRecentWPs(data);
+    } catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to load recent work plans'); }
+    finally { setRecentWPsLoading(false); }
+  };
+  const copyWP = async (planId) => {
+    if (!selectedDate) return;
+    try {
+      await summitAPI.copyWorkPlan(planId, selectedDate);
+      notify('Work plan copied to ' + selectedDate, 'success');
+      setCopyWPOpen(false);
+      await loadDay(selectedDate);
+    } catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to copy work plan'); }
+  };
+
+  // ── Send Email ────────────────────────────────────────────────────────────
+  const sendEmail = async (emailType) => {
+    if (!selectedDate) return;
+    setEmailSending(emailType);
+    try {
+      const result = await summitAPI.sendEmail(selectedDate, emailType);
+      notify(result.message || 'Email sent', 'success');
+      await loadDay(selectedDate);
+    } catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to send email'); }
+    finally { setEmailSending(null); }
   };
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -1514,7 +1628,28 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                       ) : <Typography variant="body2" color="text.secondary">No weather data.</Typography>}
                     </SectionCard>
                     {/* Email status — always shown */}
-                    <SectionCard title="✉ Email Delivery Status" accent="linear-gradient(90deg,#4527a0,#5e35b1)">
+                    <SectionCard title="✉ Email Delivery" accent="linear-gradient(90deg,#4527a0,#5e35b1)">
+                      {/* Send buttons */}
+                      <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
+                        {[
+                          { type: 'to',    label: 'Night Log (TO)',  color: '#1565c0' },
+                          { type: 'dc',    label: 'Day Crew (DC)',   color: '#e65100' },
+                          { type: 'smoka', label: 'SMOKA Archive',   color: '#1b5e20' },
+                        ].map(({ type, label, color }) => (
+                          <Button
+                            key={type}
+                            size="small"
+                            variant="outlined"
+                            startIcon={emailSending === type ? <CircularProgress size={14} /> : <EmailIcon fontSize="small" />}
+                            disabled={!!emailSending}
+                            onClick={() => sendEmail(type)}
+                            sx={{ borderRadius: 2, fontSize: '0.72rem', borderColor: color, color,
+                              '&:hover': { bgcolor: `${color}12` } }}
+                          >
+                            {emailSending === type ? 'Sending…' : `Send ${label}`}
+                          </Button>
+                        ))}
+                      </Stack>
                       {!dayData.email_delivery ? (
                         <Typography variant="body2" color="text.secondary">
                           No email delivery record for this day yet.
@@ -1536,27 +1671,6 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                               )}
                             </Stack>
                           ))}
-                          {(dayData.email_delivery.am_sent_at || dayData.email_delivery.pm_sent_at || dayData.email_delivery.day_digest_sent_at) && (
-                            <Box sx={{ mt: 0.5, pt: 0.5, borderTop: '1px solid #e0e0e0' }}>
-                              <Stack spacing={0.25}>
-                                {dayData.email_delivery.am_sent_at && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    AM digest sent: {formatDateHST(dayData.email_delivery.am_sent_at)}
-                                  </Typography>
-                                )}
-                                {dayData.email_delivery.pm_sent_at && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    PM digest sent: {formatDateHST(dayData.email_delivery.pm_sent_at)}
-                                  </Typography>
-                                )}
-                                {dayData.email_delivery.day_digest_sent_at && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    Day digest sent: {formatDateHST(dayData.email_delivery.day_digest_sent_at)}
-                                  </Typography>
-                                )}
-                              </Stack>
-                            </Box>
-                          )}
                           {dayData.email_delivery.last_error && (
                             <Alert severity="warning" sx={{ py: 0.25, px: 1, fontSize: '0.72rem', mt: 0.5 }}>
                               Last error: {dayData.email_delivery.last_error}
@@ -1569,38 +1683,68 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                 </Box>
               )}
 
-              {/* ── TO / IO Tab ── */}
-              {viewTab === 'toio' && (
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-                  {/* ── TO card ── */}
-                  <SectionCard title="🔭 Telescope Operator (TO)" accent="linear-gradient(90deg,#1565c0,#1976d2)" action={
-                    !(editorOpen && editorCard === 'TO') &&
-                    <Button size="small" startIcon={<AddIcon />} onClick={() => beginCreate('TO')} sx={{ color: '#fff' }}>Add TO</Button>
-                  }>
-                    {editorOpen && editorCard === 'TO' && (
+              {/* ── TO / IO Tab — combined chronological view ── */}
+              {viewTab === 'toio' && (() => {
+                const toioRows = [...toRows, ...ioRows].sort((a, b) => {
+                  const at = a.item_time ? new Date(a.item_time).getTime() : 0;
+                  const bt = b.item_time ? new Date(b.item_time).getTime() : 0;
+                  return at - bt;
+                });
+                return (
+                  <SectionCard
+                    title={`🔭🎯 TO / IO Combined Timeline (${toioRows.length} entries — TO: ${toRows.length}, IO: ${ioRows.length})`}
+                    accent="linear-gradient(90deg,#1a237e,#283593)"
+                    action={
+                      <Stack direction="row" spacing={0.75}>
+                        {!(editorOpen && editorCard === 'TO') && (
+                          <Button size="small" startIcon={<AddIcon />} onClick={() => beginCreate('TO')}
+                            sx={{ color: '#fff', bgcolor: 'rgba(25,118,210,0.5)', borderRadius: 1.5, fontSize: '0.73rem',
+                              '&:hover': { bgcolor: 'rgba(25,118,210,0.8)' } }}>
+                            + TO
+                          </Button>
+                        )}
+                        {!(editorOpen && editorCard === 'IO') && (
+                          <Button size="small" startIcon={<AddIcon />} onClick={() => beginCreate('IO')}
+                            sx={{ color: '#fff', bgcolor: 'rgba(46,125,50,0.5)', borderRadius: 1.5, fontSize: '0.73rem',
+                              '&:hover': { bgcolor: 'rgba(46,125,50,0.8)' } }}>
+                            + IO
+                          </Button>
+                        )}
+                      </Stack>
+                    }
+                  >
+                    {editorOpen && (editorCard === 'TO' || editorCard === 'IO') && (
                       <LogItemEditor editor={editor} setEditor={setEditor} onSave={saveEditor}
                         onCancel={() => { setEditorOpen(false); setEditorCard(null); setEditor(EMPTY_EDITOR); }}
                         saving={editorSaving} selectedDate={selectedDate}
                         workPlans={dayData?.work_plans || []} />
                     )}
-                    {renderLogList(toRows, 'TO', false)}
+                    {toioRows.length === 0
+                      ? <Typography variant="body2" color="text.secondary">No TO or IO entries for this day.</Typography>
+                      : toioRows.map((item) => (
+                        <Box key={item.id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mb: 0.5 }}>
+                          <Chip
+                            size="small"
+                            label={item.crew_tab}
+                            color={item.crew_tab === 'TO' ? 'primary' : 'success'}
+                            sx={{ mt: 0.5, minWidth: 36, fontWeight: 700, fontSize: '0.7rem' }}
+                          />
+                          <Box sx={{ flex: 1 }}>
+                            <LogItemRow
+                              item={item}
+                              onEdit={beginEdit}
+                              onDelete={deleteItem}
+                              onCreateFatsFromSummit={onCreateFatsFromSummit ? openFatsFromItem : undefined}
+                              logDate={selectedDate}
+                              highlighted={highlightItemId === item.id}
+                            />
+                          </Box>
+                        </Box>
+                      ))
+                    }
                   </SectionCard>
-
-                  {/* ── IO card ── */}
-                  <SectionCard title="🎯 Instrument Operator (IO)" accent="linear-gradient(90deg,#2e7d32,#388e3c)" action={
-                    !(editorOpen && editorCard === 'IO') &&
-                    <Button size="small" startIcon={<AddIcon />} onClick={() => beginCreate('IO')} sx={{ color: '#fff' }}>Add IO</Button>
-                  }>
-                    {editorOpen && editorCard === 'IO' && (
-                      <LogItemEditor editor={editor} setEditor={setEditor} onSave={saveEditor}
-                        onCancel={() => { setEditorOpen(false); setEditorCard(null); setEditor(EMPTY_EDITOR); }}
-                        saving={editorSaving} selectedDate={selectedDate}
-                        workPlans={dayData?.work_plans || []} />
-                    )}
-                    {renderLogList(ioRows, 'IO', false)}
-                  </SectionCard>
-                </Box>
-              )}
+                );
+              })()}
 
               {/* ── Day Crew Tab ── */}
               {viewTab === 'daycrew' && (
@@ -1613,7 +1757,14 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
               {viewTab === 'workplan' && (
                 <Box>
                   <SectionCard title="📋 Work Plans" accent="linear-gradient(90deg,#6a1b9a,#7b1fa2)" action={
-                    <Button size="small" startIcon={<AddIcon />} onClick={openAddWP} sx={{ color: '#fff' }}>New Work Plan</Button>
+                    <Stack direction="row" spacing={0.75}>
+                      <Button size="small" startIcon={<AddIcon />} onClick={openAddWP} sx={{ color: '#fff' }}>New</Button>
+                      <Button size="small" startIcon={<ContentCopyIcon />} onClick={openCopyWP}
+                        sx={{ color: '#fff', bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 1.5, fontSize: '0.72rem',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' } }}>
+                        Copy from Previous
+                      </Button>
+                    </Stack>
                   }>
                     {(dayData.work_plans || []).length === 0
                       ? <Typography variant="body2" color="text.secondary">No work plans for this day.</Typography>
@@ -2058,11 +2209,31 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
             <TextField size="small" fullWidth label="Location (e.g. summit, base)"
               value={crewForm.location}
               onChange={(e) => setCrewForm(p => ({ ...p, location: e.target.value }))} />
-            <Stack direction="row" spacing={1}>
-              <TextField size="small" fullWidth label="Time In HST (HH:MM)" value={crewForm.time_in}
-                onChange={(e) => setCrewForm(p => ({ ...p, time_in: e.target.value }))} />
-              <TextField size="small" fullWidth label="Time Out HST (HH:MM)" value={crewForm.time_out}
-                onChange={(e) => setCrewForm(p => ({ ...p, time_out: e.target.value }))} />
+            <Stack direction="row" spacing={1} alignItems="flex-end">
+              <Box sx={{ flex: 1 }}>
+                <TextField size="small" fullWidth label="Time In HST (HH:MM)" value={crewForm.time_in}
+                  onChange={(e) => setCrewForm(p => ({ ...p, time_in: e.target.value }))} />
+              </Box>
+              <Tooltip title="Set Time In to now (HST)">
+                <Button size="small" variant="outlined" onClick={() => setCrewForm(p => ({ ...p, time_in: nowHSThmm() }))}
+                  startIcon={<AccessTimeIcon fontSize="small" />}
+                  sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem', borderRadius: 1.5 }}>
+                  In Now
+                </Button>
+              </Tooltip>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="flex-end">
+              <Box sx={{ flex: 1 }}>
+                <TextField size="small" fullWidth label="Time Out HST (HH:MM)" value={crewForm.time_out}
+                  onChange={(e) => setCrewForm(p => ({ ...p, time_out: e.target.value }))} />
+              </Box>
+              <Tooltip title="Set Time Out to now (HST)">
+                <Button size="small" variant="outlined" onClick={() => setCrewForm(p => ({ ...p, time_out: nowHSThmm() }))}
+                  startIcon={<AccessTimeIcon fontSize="small" />}
+                  sx={{ whiteSpace: 'nowrap', fontSize: '0.7rem', borderRadius: 1.5 }}>
+                  Out Now
+                </Button>
+              </Tooltip>
             </Stack>
           </Stack>
         </DialogContent>
@@ -2125,7 +2296,69 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
         onSave={saveWP}
         saving={wpSaving}
         initial={wpEditing || {}}
+        currentUsername={user?.username || ''}
       />
+
+      {/* Copy Work Plan from Previous dialog */}
+      <Dialog open={copyWPOpen} onClose={() => setCopyWPOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ background: 'linear-gradient(90deg,#6a1b9a,#7b1fa2)', color: '#fff', py: 1.5 }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <ContentCopyIcon fontSize="small" />
+            <span>Copy Work Plan from Previous</span>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {recentWPsLoading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress size={30} />
+            </Box>
+          )}
+          {!recentWPsLoading && recentWPs.length === 0 && (
+            <Box sx={{ p: 3 }}>
+              <Typography variant="body2" color="text.secondary">
+                No recent work plans found for your username. Work plans where you are listed as
+                Requestor or Assigned will appear here.
+              </Typography>
+            </Box>
+          )}
+          {!recentWPsLoading && recentWPs.length > 0 && (
+            <List dense disablePadding>
+              {recentWPs.map((item) => {
+                const wp = item;
+                const logDate = wp.log_date || '';
+                const title = wp.comptitle || wp.plan_text || '(untitled)';
+                const status = wp.wp_status || '';
+                const req = wp.requestor || '';
+                return (
+                  <ListItem key={wp.id} disablePadding divider>
+                    <ListItemButton onClick={() => copyWP(wp.id)} sx={{ py: 1.25 }}>
+                      <ListItemText
+                        primary={
+                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Typography variant="body2" fontWeight={600}>{title}</Typography>
+                            {status && (
+                              <Chip size="small" label={status} variant="outlined"
+                                sx={{ fontSize: '0.65rem', height: 18 }} />
+                            )}
+                          </Stack>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary">
+                            {logDate}  ·  Requestor: {req || '—'}
+                          </Typography>
+                        }
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 2, py: 1.25 }}>
+          <Button onClick={() => setCopyWPOpen(false)} startIcon={<CancelIcon />} sx={{ borderRadius: 2 }}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

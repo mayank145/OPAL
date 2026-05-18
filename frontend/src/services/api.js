@@ -205,6 +205,24 @@ export const referenceAPI = {
     const response = await api.get('/api/v1/reference/staff');
     return response.data;
   },
+
+  // Get full Subaru Telescope org user list (privy='subaru') for WP dropdowns
+  getOrgUsers: async () => {
+    const response = await api.get('/api/v1/reference/org-users');
+    return response.data; // [{ username, display }, ...]
+  },
+
+  // Get all summit refer code groups (PLANREQ, PLANLOCK, DCASSIST, INSTR, ALLOC, …)
+  getReferCodes: async () => {
+    const response = await api.get('/api/v1/reference/refer-codes');
+    return response.data;
+  },
+
+  // Get codes for a specific refer type
+  getReferCodesByType: async (codeType) => {
+    const response = await api.get(`/api/v1/reference/refer-codes/${codeType}`);
+    return response.data;
+  },
 };
 
 // Summit Logging API (Postgres-backed) — full CRUD
@@ -244,6 +262,14 @@ export const summitAPI = {
   updateWorkPlan: (planId, payload) =>
     api.patch(`/api/v1/summit/work-plans/${planId}`, payload).then((r) => r.data),
   deleteWorkPlan: (planId) => api.delete(`/api/v1/summit/work-plans/${planId}`),
+  getRecentWorkPlans: (username, limit = 20) =>
+    api.get('/api/v1/summit/work-plans/recent', { params: { username, limit } }).then((r) => r.data),
+  copyWorkPlan: (planId, targetDate) =>
+    api.post(`/api/v1/summit/work-plans/${planId}/copy`, { target_date: targetDate }).then((r) => r.data),
+
+  // Email
+  sendEmail: (logDate, emailType) =>
+    api.post(`/api/v1/summit/day/${logDate}/email/send`, { email_type: emailType }).then((r) => r.data),
 
   // Log items
   createLogItem: (logDate, payload) =>

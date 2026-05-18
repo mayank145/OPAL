@@ -107,6 +107,43 @@ async def get_clients_db():
         yield session
 
 
+# sumlogs legacy MariaDB — used for staff list (Assigned1/Notify dropdowns)
+# Convert pymysql URL to aiomysql for async use
+_sumlogs_sync_url = settings.sumlogs_database_url  # mysql+pymysql://...
+_sumlogs_async_url = _sumlogs_sync_url.replace("mysql+pymysql://", "mysql+aiomysql://", 1) if _sumlogs_sync_url else ""
+
+if _sumlogs_async_url:
+    try:
+        sumlogs_engine = create_async_engine(
+            _sumlogs_async_url,
+            echo=False,
+            pool_size=2,
+            max_overflow=2,
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            pool_timeout=5,
+            connect_args={"charset": "utf8mb4", "connect_timeout": 5},
+        )
+        sumlogs_async_session = sessionmaker(
+            sumlogs_engine, class_=AsyncSession, expire_on_commit=False
+        )
+    except Exception:
+        sumlogs_engine = None
+        sumlogs_async_session = None
+else:
+    sumlogs_engine = None
+    sumlogs_async_session = None
+
+
+async def get_sumlogs_db():
+    """Async session for the legacy sumlogs MariaDB (staff list, etc.)."""
+    if sumlogs_async_session is None:
+        yield None
+        return
+    async for session in _session_dependency(sumlogs_async_session):
+        yield session
+
+
 # Backward-compatible aliases used by existing code.
 engine = mariadb_engine
 async_session = mariadb_async_session

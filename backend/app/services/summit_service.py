@@ -4,8 +4,10 @@ Business logic for Summit Logging — full CRUD for all entities.
 from __future__ import annotations
 
 import re
+import smtplib
 import uuid
 from datetime import date, datetime, timezone
+from email.mime.text import MIMEText
 from typing import Any, List, Optional, Tuple
 from uuid import UUID
 
@@ -452,7 +454,9 @@ class SummitService:
         await db.refresh(item)
         return item
 
-    async def update_log_item(self, db: AsyncSession, item_id: UUID, data: dict[str, Any]) -> LogItem:
+    async def update_log_item(
+        self, db: AsyncSession, item_id: UUID, data: dict[str, Any], username: str = "system"
+    ) -> LogItem:
         item = await self.get_log_item(db, item_id)
         if "work_plan_id" in data:
             wp_id = data["work_plan_id"]
@@ -467,9 +471,19 @@ class SummitService:
         for field in ("item_time", "item_type", "downtime_minutes", "subsystem", "status", "created_by"):
             if field in data:
                 setattr(item, field, data[field])
-        for field in ("title", "body", "history_text", "comment_text"):
+        for field in ("title", "body", "comment_text"):
             if field in data:
                 setattr(item, field, _strip_nul(data[field]))
+        # history_text: auto-append an audit line when title/body change; only
+        # overwrite if the caller explicitly provides a non-None value.
+        if "history_text" in data and data["history_text"] is not None:
+            item.history_text = _strip_nul(data["history_text"])
+        elif "title" in data or "body" in data:
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+            title_preview = (data.get("title") or item.title or "")[:80]
+            new_line = f"[{now_str}] ({username}): {title_preview}"
+            existing = (item.history_text or "").rstrip()
+            item.history_text = f"{existing}\n{new_line}".strip()
         if "summit_access" in data:
             item.summit_access = _strip_nul(data["summit_access"])
         item.updated_at = datetime.now(timezone.utc)
@@ -482,10 +496,235 @@ class SummitService:
         await db.execute(delete(LogItem).where(LogItem.id == item_id))
         await db.commit()
 
+    # ── Copy Work Plan ───────────────────────────────────────────────────────────
+
+    async def get_recent_work_plans(
+        self, db: AsyncSession, username: str, limit: int = 20
+    ) -> List[dict]:
+        """Return the most recent work plans associated with a user (requestor or assigned1)."""
+        stmt = (
+            select(WorkPlan, SummitDay.log_date)
+            .join(SummitDay, WorkPlan.summit_day_id == SummitDay.id)
+            .where(
+                or_(WorkPlan.requestor == username, WorkPlan.assigned1 == username)
+            )
+            .order_by(SummitDay.log_date.desc(), WorkPlan.window_start.desc().nulls_last())
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+        return [{"wp": wp, "log_date": log_date} for wp, log_date in rows]
+
+    async def copy_work_plan(
+        self, db: AsyncSession, plan_id: UUID, target_date: date, username: str
+    ) -> WorkPlan:
+        """Duplicate a work plan onto a different log date (clears completion fields)."""
+        source = await self.get_work_plan(db, plan_id)
+        day = await self._get_day_header(db, target_date)
+        new_wp = WorkPlan(id=uuid.uuid4(), summit_day_id=day.id)
+        # Copy all data fields
+        for field in self._WP_STR_FIELDS:
+            setattr(new_wp, field, getattr(source, field, None))
+        for field in ("master", "seats", "seats2", "pseats"):
+            setattr(new_wp, field, getattr(source, field, None))
+        new_wp.plan_text = source.plan_text
+        new_wp.wp_type = source.wp_type
+        new_wp.wp_subsystem = source.wp_subsystem
+        new_wp.day_warning = source.day_warning
+        new_wp.nite_warning = source.nite_warning
+        new_wp.teampass = source.teampass
+        new_wp.req_flags = source.req_flags
+        new_wp.lockout_flags = source.lockout_flags
+        new_wp.requestor = username or source.requestor
+        new_wp.comptitle = source.comptitle
+        # Reset timing and completion
+        new_wp.window_start = source.window_start
+        new_wp.window_end = source.window_end
+        new_wp.wp_status = "Planned"
+        new_wp.realstart = None
+        new_wp.realend = None
+        new_wp.comptext = None
+        new_wp.completion_title = None
+        db.add(new_wp)
+        await db.commit()
+        await db.refresh(new_wp)
+        return new_wp
+
     # ── Email Delivery ──────────────────────────────────────────────────────────
 
     async def _get_email_delivery(self, db: AsyncSession, summit_day_id) -> Optional[EmailDelivery]:
         return (await db.execute(select(EmailDelivery).where(EmailDelivery.summit_day_id == summit_day_id))).scalar_one_or_none()
+
+    # ── Send Email ───────────────────────────────────────────────────────────────
+
+    def _build_email_body(self, log_date: date, day_data: dict, email_type: str) -> str:
+        """Compose a plain-text email body from a daily view payload dict."""
+        lines: list[str] = []
+        date_str = log_date.strftime("%Y-%m-%d")
+        lines.append(f"Subaru SciOps Night Log — {date_str}")
+        lines.append("=" * 50)
+
+        # ── Crew
+        lines.append("\n=== CREW ===")
+        for c in day_data.get("crew_assignments", []):
+            name = c.get("member_name") or "—"
+            role = c.get("role") or "?"
+            loc = c.get("location") or ""
+            tin = (c.get("time_in") or "")[:16]
+            tout = (c.get("time_out") or "")[:16]
+            lines.append(f"  {role}: {name}  {f'@ {loc}' if loc else ''}  {tin} – {tout}")
+
+        # ── Weather
+        w = day_data.get("weather")
+        if w:
+            lines.append("\n=== WEATHER ===")
+            parts = []
+            if w.get("sky"):       parts.append(f"Sky: {w['sky']}")
+            if w.get("seeing"):    parts.append(f"Seeing: {w['seeing']}")
+            if w.get("temp_raw"):  parts.append(f"Temp: {w['temp_raw']}")
+            if w.get("wind"):      parts.append(f"Wind: {w['wind']}")
+            if w.get("humidity_raw"): parts.append(f"Humidity: {w['humidity_raw']}")
+            lines.append("  " + " | ".join(parts))
+            if w.get("comment_text"):
+                lines.append(f"  Note: {w['comment_text']}")
+
+        # ── Programs
+        progs = day_data.get("programs", [])
+        if progs:
+            lines.append("\n=== PROGRAMS ===")
+            for i, p in enumerate(progs, 1):
+                instr = p.get("instr") or "?"
+                alloc = p.get("alloc") or ""
+                pi = p.get("pi") or ""
+                gid = p.get("gid") or ""
+                propid = p.get("propid") or ""
+                s = f"  {i}. {instr}"
+                if alloc: s += f" [{alloc}]"
+                if pi:    s += f"  PI: {pi}"
+                if gid:   s += f"  GID: {gid}"
+                if propid: s += f"  PropID: {propid}"
+                lines.append(s)
+                t_start = (p.get("slot_start") or "")[:16]
+                t_end   = (p.get("slot_end") or "")[:16]
+                if t_start or t_end:
+                    lines.append(f"       Time: {t_start} – {t_end}")
+
+        # ── Work Plans (DC email)
+        if email_type == "dc":
+            wps = day_data.get("work_plans", [])
+            if wps:
+                lines.append("\n=== WORK PLANS ===")
+                for wp in wps:
+                    title = wp.get("comptitle") or wp.get("plan_text") or "—"
+                    status = wp.get("wp_status") or ""
+                    req = wp.get("requestor") or ""
+                    lines.append(f"  [{status}] {title}  (req: {req})")
+
+        # ── Log Items
+        items = day_data.get("log_items", [])
+        if items:
+            lines.append("\n=== LOG ENTRIES ===")
+            for item in items:
+                tab   = item.get("crew_tab") or "?"
+                itime = (item.get("item_time") or "")[:16]
+                itype = item.get("item_type") or ""
+                title = item.get("title") or ""
+                body  = item.get("body") or ""
+                dt    = item.get("downtime_minutes")
+                status = item.get("status") or ""
+                hdr = f"  [{tab}] {itime}  {itype}  {status}"
+                if dt:
+                    hdr += f"  ⏱ {dt}min downtime"
+                lines.append(hdr)
+                if title: lines.append(f"    {title}")
+                if body:
+                    for bline in body.split("\n")[:5]:
+                        lines.append(f"      {bline}")
+
+        lines.append("\n— Sent from OPAL (Subaru Telescope Operations) —")
+        return "\n".join(lines)
+
+    async def send_summit_email(
+        self, db: AsyncSession, log_date: date, email_type: str, username: str
+    ) -> dict:
+        """Compose and send a night-log / DC / SMOKA email, then update EmailDelivery."""
+        from app.core.config import settings
+
+        # Fetch day view as plain dicts
+        payload = await self.get_daily_view(db=db, log_date=log_date)
+        day_obj = payload["day"]
+
+        def _as_dict(obj) -> dict:
+            if obj is None:
+                return {}
+            if isinstance(obj, dict):
+                return obj
+            return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
+        def _list_dicts(lst) -> list:
+            return [_as_dict(x) for x in (lst or [])]
+
+        day_data = {
+            "crew_assignments": _list_dicts(payload.get("crew")),
+            "weather":   _as_dict(payload.get("weather")),
+            "programs":  _list_dicts(payload.get("programs")),
+            "work_plans": _list_dicts(payload.get("work_plans")),
+            "log_items": _list_dicts(payload.get("log_items")),
+        }
+
+        body_text = self._build_email_body(log_date, day_data, email_type)
+        date_str = log_date.strftime("%Y-%m-%d")
+
+        if email_type == "smoka":
+            subject = f"SMOKA Archive Log — {date_str} (from OPAL)"
+            raw_recipients = settings.email_smoka_recipients
+        elif email_type == "dc":
+            subject = f"SciOps Day Crew Log — {date_str} (from OPAL)"
+            raw_recipients = settings.email_dc_recipients
+        else:  # "to" / default
+            subject = f"SciOps Night Log — {date_str} (from OPAL)"
+            raw_recipients = settings.email_summitlog_recipients
+
+        recipients = [r.strip() for r in raw_recipients.split(",") if r.strip()]
+        if not recipients:
+            raise HTTPException(status_code=400, detail="No email recipients configured")
+
+        msg = MIMEText(body_text, "plain", "utf-8")
+        msg["From"] = settings.email_sender
+        msg["To"] = ", ".join(recipients)
+        msg["Subject"] = subject
+        msg["Reply-To"] = settings.email_sender
+
+        last_error: Optional[str] = None
+        try:
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+                server.sendmail(settings.email_sender, recipients, msg.as_string())
+        except Exception as exc:
+            last_error = str(exc)
+
+        # Update EmailDelivery record
+        now = datetime.now(timezone.utc)
+        delivery = await self._get_email_delivery(db, day_obj.id)
+        if delivery is None:
+            delivery = EmailDelivery(id=uuid.uuid4(), summit_day_id=day_obj.id)
+            db.add(delivery)
+        delivery.last_error = last_error
+        if last_error is None:
+            if email_type == "smoka":
+                delivery.mailsmoka = "Y"
+                delivery.smokatime = now
+            elif email_type == "dc":
+                delivery.mailday = "Y"
+                delivery.maildtime = now
+                delivery.day_digest_sent_at = now
+            else:
+                delivery.mailed = "Y"
+                delivery.mailtime = now
+        await db.commit()
+
+        if last_error:
+            raise HTTPException(status_code=502, detail=f"SMTP error: {last_error}")
+
+        return {"message": f"Email sent to {', '.join(recipients)}", "recipients": recipients}
 
     # ── Search ──────────────────────────────────────────────────────────────────
 

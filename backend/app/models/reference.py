@@ -1,6 +1,6 @@
 """
-Reference Tables Models - fsection and fstaff
-These tables provide dropdown options for FATS forms
+Reference Tables Models - fsection, fstaff, and clients.users
+These tables provide dropdown options for FATS and Summit Logging forms.
 """
 from sqlalchemy import Column, String, Integer
 from app.db.session import Base
@@ -28,4 +28,6 @@ class FStaff(Base):
     
     def __repr__(self):
         return f"<FStaff(id={self.id}, name='{self.name}')>"
+
+
 
