@@ -25,6 +25,7 @@ import CommentDialog from './components/CommentDialog';
 import ConfirmationDialog from './components/ConfirmationDialog';
 import FullFaultsList from './components/FullFaultsList';
 import SummitLog from './components/SummitLog';
+import WorkPlanCalendar from './components/WorkPlanCalendar';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 // import { fatsAPI } from './services/api'; // Available for future use
@@ -249,11 +250,12 @@ function AppContent() {
   };
 
   return (
-    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
+    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5', overflowY: 'auto' }}>
       <AppBar position="static" elevation={0}
-        sx={{ background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
-        <Toolbar sx={{ minHeight: 60 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexGrow: 1 }}>
+        sx={{ background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)', borderBottom: '1px solid rgba(255,255,255,0.12)', overflow: 'visible' }}>
+        <Toolbar sx={{ minHeight: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 1, px: { xs: 1, sm: 2 } }}>
+          {/* Left: logo + title */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
             <Box
               component="img"
               src="/subaru_logo.png"
@@ -269,6 +271,8 @@ function AppContent() {
               </Typography>
             </Box>
           </Box>
+
+          {/* Center: nav buttons */}
           <ToggleButtonGroup
             value={mainView}
             exclusive
@@ -278,16 +282,18 @@ function AppContent() {
             sx={{
               bgcolor: 'rgba(0,0,0,0.2)',
               borderRadius: 2,
+              flexShrink: 0,
               '& .MuiToggleButton-root': {
                 color: 'rgba(255,255,255,0.7)',
                 border: 'none',
-                px: 2,
+                px: 1.5,
                 py: 0.6,
-                fontSize: '0.82rem',
+                fontSize: '0.78rem',
                 fontWeight: 600,
                 textTransform: 'none',
                 borderRadius: '8px !important',
                 transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
               },
               '& .MuiToggleButton-root.Mui-selected': {
                 bgcolor: 'rgba(255,255,255,0.2)',
@@ -298,10 +304,11 @@ function AppContent() {
           >
             <ToggleButton value="fats">⚡ FATS</ToggleButton>
             <ToggleButton value="summit">🌙 Summit Log</ToggleButton>
+            <ToggleButton value="wpcalendar">📅 WP Calendar</ToggleButton>
           </ToggleButtonGroup>
 
-          {/* User info + logout */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 2 }}>
+          {/* Right: user info + logout */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             {user && (
               <Chip
                 label={user.username}
@@ -375,6 +382,14 @@ function AppContent() {
           <SummitLog
             onError={(msg, severity) => showSnackbar(msg, severity)}
             onCreateFatsFromSummit={handleCreateFatsFromSummit}
+          />
+        ) : mainView === 'wpcalendar' ? (
+          <WorkPlanCalendar
+            onOpenSummitLog={(dateStr) => {
+              setMainView('summit');
+              // SummitLog will pick up the date via its own state
+              window._summitLogJumpDate = dateStr;
+            }}
           />
         ) : (
           renderTabContent()

@@ -232,6 +232,8 @@ export const summitAPI = {
   // Days
   getMonthly: (year, month) =>
     api.get('/api/v1/summit/monthly', { params: { year, month } }).then((r) => r.data),
+  getMonthlyWorkPlans: (year, month) =>
+    api.get('/api/v1/summit/monthly-work-plans', { params: { year, month } }).then((r) => r.data),
   getYear: (year) => api.get(`/api/v1/summit/year/${year}`).then((r) => r.data),
   getDay: (logDate) => api.get(`/api/v1/summit/day/${logDate}`).then((r) => r.data),
   createDay: (payload) => api.post('/api/v1/summit/days', payload).then((r) => r.data),

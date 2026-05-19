@@ -8,11 +8,12 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from fastapi import APIRouter, Body, Depends, Query, status
-from sqlalchemy import text
+from sqlalchemy import and_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_auth
 from app.db.session import get_summit_db
+from app.models.summit import SummitDay, WorkPlan
 from app.schemas.summit import (
     CrewAssignmentCreate,
     CrewAssignmentResponse,
@@ -73,6 +74,36 @@ async def monthly(
             )
         )
     return {"year": year, "month": month, "days": days_out}
+
+
+@router.get("/monthly-work-plans", response_model=dict)
+async def monthly_work_plans(
+    year: int = Query(..., ge=1900, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    db: AsyncSession = Depends(get_summit_db),
+):
+    """Return all work plans for a given month, grouped by date. Used by Work Plan Calendar."""
+    import calendar as _calendar
+
+    first_day = date(year, month, 1)
+    last_day = date(year, month, _calendar.monthrange(year, month)[1])
+
+    stmt = (
+        select(SummitDay, WorkPlan)
+        .join(WorkPlan, WorkPlan.summit_day_id == SummitDay.id)
+        .where(and_(SummitDay.log_date >= first_day, SummitDay.log_date <= last_day))
+        .order_by(SummitDay.log_date.asc(), WorkPlan.window_start.asc().nulls_last())
+    )
+    rows = (await db.execute(stmt)).all()
+
+    grouped: dict = {}
+    for day, wp in rows:
+        key = str(day.log_date)
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(WorkPlanResponse.model_validate(wp).model_dump())
+
+    return {"year": year, "month": month, "work_plans_by_date": grouped}
 
 
 @router.get("/year/{year}", response_model=dict)

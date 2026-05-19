@@ -26,7 +26,7 @@ import { useAuth } from '../context/AuthContext';
 // ─── Slideshow images ─────────────────────────────────────────────────────────
 
 const SLIDES = [
-  { src: '/slideshow/s01.png', credit: 'Comet Tsuchinshan-ATLAS over Subaru Telescope', author: 'Dr. Vera Maria Passegger' },
+  { src: '/slideshow/s01.png', credit: 'Comet over Subaru Telescope', author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s03.png', credit: 'Milkyway over Subaru Telescope',                   author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s04.png', credit: 'Summit sunset, Maunakea',                         author: 'Dr. Vera Maria Passegger' },
   { src: '/slideshow/s05.png', credit: 'Shadow of Maunakea at sunrise — Subaru Telescope',               author: 'Sebastian Egner' },

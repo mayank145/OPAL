@@ -363,11 +363,20 @@ class SummitService:
         return row
 
     _WP_STR_FIELDS = (
+        # Plan header
+        "requestor", "wp_status", "wp_type", "wp_subsystem",
+        "plan_text", "day_warning", "nite_warning", "teampass",
+        # Effects & location
         "nite_effect", "day_effect",
         "location", "location2", "location3",
+        # Assigned / crew
         "assigned1", "assigned2", "dcassist", "notify",
         "contact1", "contact2", "others", "otherreq",
-        "comptitle", "comptext", "requirements", "notes",
+        # Required / lockout flags (stored as comma-separated text)
+        "req_flags", "lockout_flags",
+        # Completion
+        "comptitle", "completion_title", "comptext",
+        "requirements", "notes",
         "intervene", "melco", "fai", "pass_text", "rpass_text",
     )
 
@@ -375,7 +384,7 @@ class SummitService:
         for f in self._WP_STR_FIELDS:
             if f in data:
                 setattr(wp, f, _strip_nul(data[f]))
-        for f in ("window_start", "window_end"):
+        for f in ("window_start", "window_end", "realstart", "realend"):
             if f in data:
                 setattr(wp, f, data[f])
         for f in ("master", "seats", "seats2", "pseats"):

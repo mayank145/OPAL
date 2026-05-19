@@ -415,7 +415,7 @@ const LOCKOUT_FLAGS = [
   'No-TopScreen-Move','No-MirrorCover-Move','No-MainShutter','No-UnitSelector-Move',
 ];
 
-function WorkPlanDialog({ open, onClose, onSave, saving, initial = {}, currentUsername = '' }) {
+export function WorkPlanDialog({ open, onClose, onSave, saving, initial = {}, currentUsername = '' }) {
   // orgUsers: [{ username, display }] from clients.users where privy='subaru'
   const [orgUsers, setOrgUsers] = useState([{ username: '.none', display: '— none —' }]);
   const [staffLoading, setStaffLoading] = useState(false);
@@ -437,7 +437,7 @@ function WorkPlanDialog({ open, onClose, onSave, saving, initial = {}, currentUs
     requestor: initial.id ? (initial.requestor || '') : (currentUsername || ''),
     contact2: '', others: '',
     wp_status: 'Planned', wp_type: 'Comment', wp_subsystem: '-none-',
-    windowStart: '', windowEnd: '',
+    windowStart: '08:00', windowEnd: '17:00',
     day_warning: '', nite_warning: '',
     nite_effect: '', day_effect: '',
     location: '.none', location2: '.none', location3: '.none',
@@ -1105,7 +1105,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
       const dot = (v) => (v === '.none' || v === '-none-' || v === '' || v == null) ? null : v;
       const payload = {
         comptitle: n(form.comptitle), plan_text: n(form.plan_text),
-        requestor: n(form.requestor), contact2: n(form.contact2), others: n(form.others),
+        requestor: n(form.requestor), contact1: n(form.requestor), contact2: n(form.contact2), others: n(form.others),
         wp_status: n(form.wp_status), wp_type: n(form.wp_type),
         wp_subsystem: dot(form.wp_subsystem),
         day_warning: n(form.day_warning), nite_warning: n(form.nite_warning),
@@ -1769,11 +1769,12 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                     {(dayData.work_plans || []).length === 0
                       ? <Typography variant="body2" color="text.secondary">No work plans for this day.</Typography>
                       : (dayData.work_plans || []).map((wp) => (
-                          <Paper key={wp.id} elevation={2} sx={{
+                          <Paper key={wp.id} elevation={2} onClick={() => openEditWP(wp)} sx={{
                             mb: 1.5, borderRadius: 1.5, overflow: 'hidden',
                             borderLeft: '4px solid #7b1fa2',
+                            cursor: 'pointer',
                             transition: 'box-shadow 0.2s, transform 0.1s',
-                            '&:hover': { boxShadow: 4, transform: 'translateY(-1px)' },
+                            '&:hover': { boxShadow: 6, transform: 'translateY(-1px)', borderLeft: '4px solid #ab47bc' },
                           }}>
                             {/* WP card header */}
                             <Box sx={{ px: 1.5, py: 1, background: 'linear-gradient(90deg,#f3e5f5,#fce4ec)', borderBottom: '1px solid #e1bee7' }}>
@@ -1816,14 +1817,9 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                                   )}
                                 </Stack>
                                 <Stack direction="row" spacing={0.25} flexShrink={0}>
-                                  <Tooltip title="Edit">
-                                    <IconButton size="small" onClick={() => openEditWP(wp)}
-                                      sx={{ '&:hover': { color: '#7b1fa2', bgcolor: '#f3e5f5' } }}>
-                                      <EditIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
                                   <Tooltip title="Delete">
-                                    <IconButton size="small" color="error" onClick={() => deleteWP(wp.id)}>
+                                    <IconButton size="small" color="error"
+                                      onClick={(e) => { e.stopPropagation(); deleteWP(wp.id); }}>
                                       <DeleteIcon fontSize="small" />
                                     </IconButton>
                                   </Tooltip>
@@ -1839,20 +1835,49 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                                     {wp.day_effect && <Typography variant="body2"><strong>Day:</strong> {wp.day_effect}</Typography>}
                                   </Stack>
                                 )}
-                                {wp.assigned1 && (
+                                {(wp.requestor || wp.contact1) && (
                                   <Typography variant="body2">
-                                    <strong>Assigned:</strong> {[wp.assigned1, wp.assigned2].filter(Boolean).join(', ')}
-                                    {wp.dcassist && ` · DC: ${wp.dcassist}`}
+                                    <strong>Requestor:</strong> {wp.requestor || wp.contact1}
+                                    {wp.contact2 && `, ${wp.contact2}`}
                                   </Typography>
                                 )}
-                                {wp.location && (
-                                  <Typography variant="body2">
-                                    <strong>Location:</strong> {[wp.location, wp.location2, wp.location3].filter(Boolean).join(' / ')}
+                                {(() => { const a1 = wp.assigned1 && wp.assigned1 !== '.none' ? wp.assigned1 : null;
+                                          const a2 = wp.assigned2 && wp.assigned2 !== '.none' ? wp.assigned2 : null;
+                                          const dc = wp.dcassist && wp.dcassist !== '.none' ? wp.dcassist : null;
+                                          return (a1 || dc) ? (
+                                            <Typography variant="body2">
+                                              <strong>Assigned:</strong> {[a1, a2].filter(Boolean).join(', ')}
+                                              {dc && ` · DC: ${dc}`}
+                                            </Typography>
+                                          ) : null; })()}
+                                {(() => { const locs = [wp.location, wp.location2, wp.location3]
+                                            .filter(l => l && l !== '.none');
+                                          return locs.length ? (
+                                            <Typography variant="body2">
+                                              <strong>Location:</strong> {locs.join(' / ')}
+                                            </Typography>
+                                          ) : null; })()}
+                                {wp.plan_text && (
+                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                                    {wp.plan_text}
                                   </Typography>
                                 )}
-                                {wp.contact1 && (
+                                {wp.req_flags && (
                                   <Typography variant="body2">
-                                    <strong>Contact:</strong> {[wp.contact1, wp.contact2].filter(Boolean).join(', ')}
+                                    <strong>Required:</strong>{' '}
+                                    {wp.req_flags.split(',').filter(Boolean).map(f => (
+                                      <Chip key={f} label={f} size="small"
+                                        sx={{ mr: 0.4, mb: 0.2, bgcolor: '#e3f2fd', color: '#1565c0', fontWeight: 600, fontSize: '0.65rem', height: 18 }} />
+                                    ))}
+                                  </Typography>
+                                )}
+                                {wp.lockout_flags && (
+                                  <Typography variant="body2">
+                                    <strong>LockOuts:</strong>{' '}
+                                    {wp.lockout_flags.split(',').filter(Boolean).map(f => (
+                                      <Chip key={f} label={f} size="small"
+                                        sx={{ mr: 0.4, mb: 0.2, bgcolor: '#ffcdd2', color: '#c62828', fontWeight: 600, fontSize: '0.65rem', height: 18 }} />
+                                    ))}
                                   </Typography>
                                 )}
                                 {wp.comptext && (
