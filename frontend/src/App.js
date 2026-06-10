@@ -44,6 +44,9 @@ import {
   todayHST,
 } from './routes/paths';
 
+// Feature flag — set REACT_APP_ENABLE_SUMMIT=false in .env to hide Summit Log and WP Calendar
+const ENABLE_SUMMIT = process.env.REACT_APP_ENABLE_SUMMIT !== 'false';
+
 const MAIN_TAB = { id: 'main', label: 'FATS Entries' };
 
 function LoginRoute() {
@@ -102,6 +105,7 @@ function AppShell() {
   const [openTabs, setOpenTabs] = useState([MAIN_TAB]);
 
   const fatsListRef = useRef(null);
+  const tabScrollPositions = useRef({});
   const mainView = mainSectionFromPath(location.pathname);
 
   const routeFatsIdno = useMemo(() => {
@@ -200,6 +204,8 @@ function AppShell() {
     if (openTabs.length === 1) return;
 
     const closing = openTabs[tabIndex];
+    // Clear saved scroll position for the closed tab
+    delete tabScrollPositions.current[closing.id];
     const newTabs = openTabs.filter((_, index) => index !== tabIndex);
     setOpenTabs(newTabs);
 
@@ -219,11 +225,23 @@ function AppShell() {
   };
 
   const handleTabChange = (event, newValue) => {
+    // Save scroll position of the tab we're leaving
+    const currentTab = openTabs[activeTab];
+    if (currentTab) {
+      tabScrollPositions.current[currentTab.id] = window.scrollY;
+    }
+
     setActiveTab(newValue);
     const tab = openTabs[newValue];
     if (!tab) return;
     if (tab.id === 'main') navigate(paths.fats);
     else navigate(paths.fatsDetail(tab.fatsId));
+
+    // Restore scroll position of the tab we're switching to
+    const savedScroll = tabScrollPositions.current[tab.id] ?? 0;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: savedScroll, behavior: 'instant' });
+    });
   };
 
   const handleEditFATS = (idno) => {
@@ -367,11 +385,13 @@ function AppShell() {
     summitDateParam && isValidLogDate(summitDateParam) ? summitDateParam : null;
 
   return (
-    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5', overflowY: 'auto' }}>
+    <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
       <AppBar
-        position="static"
-        elevation={0}
+        position="sticky"
+        elevation={2}
         sx={{
+          top: 0,
+          zIndex: (theme) => theme.zIndex.appBar,
           background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)',
           borderBottom: '1px solid rgba(255,255,255,0.12)',
           overflow: 'visible',
@@ -459,8 +479,8 @@ function AppShell() {
             }}
           >
             <ToggleButton value="fats">⚡ FATS</ToggleButton>
-            <ToggleButton value="summit">🌙 Summit Log</ToggleButton>
-            <ToggleButton value="wpcalendar">📅 WP Calendar</ToggleButton>
+            {ENABLE_SUMMIT && <ToggleButton value="summit">🌙 Summit Log</ToggleButton>}
+            {ENABLE_SUMMIT && <ToggleButton value="wpcalendar">📅 WP Calendar</ToggleButton>}
           </ToggleButtonGroup>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
@@ -494,6 +514,9 @@ function AppShell() {
       {mainView === 'fats' && (
         <Box
           sx={{
+            position: 'sticky',
+            top: 60,
+            zIndex: (theme) => theme.zIndex.appBar - 1,
             borderBottom: '2px solid',
             borderColor: 'divider',
             bgcolor: '#fff',
@@ -543,49 +566,57 @@ function AppShell() {
           <Route path="/fats/:idno" element={renderFatsContent()} />
           <Route path="/fats/:idno/edit" element={renderFatsContent()} />
 
-          <Route
-            path="/summit/calendar/:year/:month"
-            element={
-              <WorkPlanCalendar
-                onOpenSummitLog={(dateStr) => navigate(paths.summitDay(dateStr))}
-              />
-            }
-          />
-          <Route
-            path="/summit/search"
-            element={
-              <SummitLog
-                onError={(msg, severity) => showSnackbar(msg, severity)}
-                onCreateFatsFromSummit={handleCreateFatsFromSummit}
-                routePanel="search"
-              />
-            }
-          />
-          <Route
-            path="/summit/years/:year"
-            element={
-              <SummitLog
-                onError={(msg, severity) => showSnackbar(msg, severity)}
-                onCreateFatsFromSummit={handleCreateFatsFromSummit}
-                routePanel="year"
-              />
-            }
-          />
-          <Route
-            path="/summit/:date"
-            element={
-              summitDateParam && !summitDateValid ? (
-                <SummitInvalidDateRedirect />
-              ) : (
+          {ENABLE_SUMMIT && (
+            <Route
+              path="/summit/calendar/:year/:month"
+              element={
+                <WorkPlanCalendar
+                  onOpenSummitLog={(dateStr) => navigate(paths.summitDay(dateStr))}
+                />
+              }
+            />
+          )}
+          {ENABLE_SUMMIT && (
+            <Route
+              path="/summit/search"
+              element={
                 <SummitLog
                   onError={(msg, severity) => showSnackbar(msg, severity)}
                   onCreateFatsFromSummit={handleCreateFatsFromSummit}
-                  routeDate={summitDateValid}
+                  routePanel="search"
                 />
-              )
-            }
-          />
-          <Route path="/summit" element={<SummitTodayRedirect />} />
+              }
+            />
+          )}
+          {ENABLE_SUMMIT && (
+            <Route
+              path="/summit/years/:year"
+              element={
+                <SummitLog
+                  onError={(msg, severity) => showSnackbar(msg, severity)}
+                  onCreateFatsFromSummit={handleCreateFatsFromSummit}
+                  routePanel="year"
+                />
+              }
+            />
+          )}
+          {ENABLE_SUMMIT && (
+            <Route
+              path="/summit/:date"
+              element={
+                summitDateParam && !summitDateValid ? (
+                  <SummitInvalidDateRedirect />
+                ) : (
+                  <SummitLog
+                    onError={(msg, severity) => showSnackbar(msg, severity)}
+                    onCreateFatsFromSummit={handleCreateFatsFromSummit}
+                    routeDate={summitDateValid}
+                  />
+                )
+              }
+            />
+          )}
+          {ENABLE_SUMMIT && <Route path="/summit" element={<SummitTodayRedirect />} />}
 
           <Route path="*" element={<Navigate to={paths.home} replace />} />
         </Routes>

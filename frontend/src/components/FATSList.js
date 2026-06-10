@@ -27,6 +27,7 @@ import {
 } from '@mui/material';
 import {
   Search as SearchIcon,
+  Clear as ClearIcon,
   Delete as DeleteIcon,
   Visibility as ViewIcon,
   Edit as EditIcon,
@@ -39,14 +40,15 @@ import { fatsAPI, referenceAPI } from '../services/api';
 
 const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }, ref) => {
   const [fatsList, setFatsList] = useState([]);
-  const [allFatsList, setAllFatsList] = useState([]); // Store all fetched data for client-side filtering
+  // eslint-disable-next-line no-unused-vars
+  const [allFatsList, setAllFatsList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeSearchTerm, setActiveSearchTerm] = useState(''); // The term actually used for search
   const [searchMode, setSearchMode] = useState('OR'); // 'OR' or 'AND' search mode
   const [sectionFilter, setSectionFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter] = useState('');
   const [statistics, setStatistics] = useState(null);
   const [sections, setSections] = useState([]); // All available sections from fsection table
   const [sortColumn, setSortColumn] = useState('idno'); // Column to sort by
@@ -55,7 +57,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
   // Pagination state for "Load More"
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
-  const [totalInDatabase, setTotalInDatabase] = useState(1461); // Total faults in database
+  const [totalInDatabase, setTotalInDatabase] = useState(1455); // Total faults in database
   const [totalMatchingSearch, setTotalMatchingSearch] = useState(null); // Total faults matching current search/filter
   const FAULTS_PER_PAGE = 100;
   
@@ -213,7 +215,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
         try {
           const stats = await fatsAPI.getStatistics();
           setStatistics(stats);
-          setTotalInDatabase(stats?.total || 1461);
+          setTotalInDatabase(stats?.total_fats || stats?.total || 1455);
         } catch (statsErr) {
           // Don't fail the whole load if stats fail
           console.warn('Failed to load statistics:', statsErr);
@@ -315,6 +317,11 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     setActiveSearchTerm(searchTerm);
   };
 
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setActiveSearchTerm('');
+  };
+
   const handleSort = (column) => {
     if (sortColumn === column) {
       // Toggle sort direction if clicking same column
@@ -377,38 +384,7 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
     }
   };
 
-  // Status color helper
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Active':
-        return 'success';
-      case 'Canceled':
-        return 'default';
-      default:
-        return 'warning';
-    }
-  };
-
-
-  // Strip HTML tags from text
-  const stripHtml = (html) => {
-    if (!html) return 'N/A';
-    // Create a temporary div element
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    // Get text content and clean up whitespace
-    const text = tmp.textContent || tmp.innerText || '';
-    return text.trim().replace(/\s+/g, ' ') || 'N/A';
-  };
-
-  // Remove date prefixes from description (e.g., "(9/16/2025) Moritani:")
-  const cleanDescription = (text) => {
-    if (!text || text === 'N/A') return 'N/A';
-    // Remove patterns like "(MM/DD/YYYY) Name:" or "(MM/DD/YY) Name:"
-    // Matches: (9/16/2025) Moritani: or (8/28/2025) Kumura-san:
-    const datePattern = /^\(\d{1,2}\/\d{1,2}\/\d{2,4}\)\s*[^:]+:\s*/i;
-    return text.replace(datePattern, '').trim() || 'N/A';
-  };
+  // Format date for display (kept for potential future use)
 
   // Format date for display
   const formatDate = (dateString) => {
@@ -495,6 +471,19 @@ const FATSList = forwardRef(({ onViewFATS, onEditFATS, onAddComment, onRefresh }
                   <SearchIcon />
                 </InputAdornment>
               ),
+              endAdornment: searchTerm ? (
+                <InputAdornment position="end">
+                  <IconButton
+                    size="small"
+                    onClick={handleClearSearch}
+                    edge="end"
+                    aria-label="clear search"
+                    sx={{ p: 0.5 }}
+                  >
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
             }}
             helperText={`Search by ID (4767), keywords (tracking error), or exact phrase ("tracking error"). Use OR/AND toggle to match ANY or ALL keywords.`}
           />

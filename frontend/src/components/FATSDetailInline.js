@@ -150,6 +150,67 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
     }
   };
 
+  // Shared style for ALL rich-text HTML areas (issue, solution, comments)
+  const HTML_CONTENT_SX = {
+    fontSize: '1rem !important',
+    lineHeight: 1.75,
+    color: '#212121',
+    '& *': { fontSize: '1rem !important', fontFamily: 'inherit !important' },
+    '& p': { margin: 0, marginBottom: '0.55rem' },
+    '& p:last-child': { marginBottom: 0 },
+    '& ul, & ol': { paddingLeft: '1.5rem', marginBottom: '0.5rem', marginTop: '0.25rem' },
+    '& li': { marginBottom: '0.2rem' },
+    '& strong, & b': { fontWeight: 700 },
+    '& em, & i': { fontStyle: 'italic' },
+    '& u': { textDecoration: 'underline' },
+    '& a': { color: '#1565c0', textDecoration: 'underline', '&:hover': { color: '#0d47a1' } },
+    '& mark': { backgroundColor: '#fff176', borderRadius: '2px', padding: '1px 3px' },
+    '& h1': { fontSize: '1.6rem !important', fontWeight: 700, marginTop: '0.75rem', marginBottom: '0.4rem' },
+    '& h2': { fontSize: '1.35rem !important', fontWeight: 700, marginTop: '0.75rem', marginBottom: '0.4rem' },
+    '& h3': { fontSize: '1.15rem !important', fontWeight: 700, marginTop: '0.5rem', marginBottom: '0.3rem' },
+    '& code': { backgroundColor: 'rgba(0,0,0,0.07)', padding: '2px 5px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.875rem !important' },
+    '& pre': { backgroundColor: 'rgba(0,0,0,0.05)', padding: '1rem', borderRadius: '4px', overflow: 'auto' },
+    '& blockquote': { borderLeft: '3px solid #ccc', paddingLeft: '1rem', color: '#555', margin: '0.5rem 0' },
+  };
+
+  // Normalize comment text so all comments render with the same typography:
+  // 1. Strip inline font-size (legacy TinyMCE used font-size: large/small/medium)
+  // 2. Strip font-family overrides from inline styles
+  // 3. Wrap plain text (no HTML) in <p> tags
+  const normalizeCommentHTML = (text) => {
+    if (!text) return '';
+
+    const hasHtmlTags = /<[a-z][\s\S]*>/i.test(text);
+
+    if (hasHtmlTags) {
+      // 1. Remove font-size and font-family from ALL inline style attributes
+      let result = text.replace(/style="([^"]*)"/gi, (match, styleValue) => {
+        const cleaned = styleValue
+          .split(';')
+          .map(s => s.trim())
+          .filter(s => s && !/^font-size\s*:/i.test(s) && !/^font-family\s*:/i.test(s))
+          .join('; ');
+        return cleaned ? `style="${cleaned}"` : '';
+      });
+      // 2. Collapse empty or style-only <span> wrappers left behind by TinyMCE
+      //    e.g. <span> <span> text </span> </span> → text
+      let prev = '';
+      while (prev !== result) {
+        prev = result;
+        result = result.replace(/<span\s*(?:style="\s*")?\s*>([\s\S]*?)<\/span>/gi, '$1');
+      }
+      // 3. Collapse &nbsp; sequences that create false spacing
+      result = result.replace(/(&nbsp;\s*){2,}/gi, ' ');
+      return result;
+    }
+
+    // Plain text — preserve line breaks and wrap in <p>
+    return text
+      .split(/\n\n+/)
+      .map(para => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+      .join('');
+  };
+
   const sanitizeHTML = (html) => {
     if (!html) return '';
     
@@ -172,7 +233,7 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
     });
     
     const sanitized = DOMPurify.sanitize(htmlWithLinks, {
-      ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div'],
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'code', 'pre', 'blockquote', 'span', 'div', 'mark'],
       ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'style', 'data-fault-id'],
       ALLOWED_STYLES: {
         '*': {
@@ -421,21 +482,9 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
         <Paper variant="outlined" sx={{ p: 2, bgcolor: 'white', mb: 2 }}>
           <Box
             onClick={handleFaultLinkClick}
-            sx={{
-              '& p': { marginBottom: '0.5rem', marginTop: 0 },
-              '& p:last-child': { marginBottom: 0 },
-              '& ul, & ol': { paddingLeft: '1.5rem', marginBottom: '0.5rem', marginTop: '0.5rem' },
-              '& li': { marginBottom: '0.25rem' },
-              '& strong, & b': { fontWeight: 'bold' },
-              '& em, & i': { fontStyle: 'italic' },
-              '& u': { textDecoration: 'underline' },
-              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
-              '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
-              '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
-              '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
-            }}
+            sx={HTML_CONTENT_SX}
             dangerouslySetInnerHTML={{ 
-              __html: sanitizeHTML(fats.idescribe) || '<p style="color: #999;">No issue description provided</p>' 
+              __html: sanitizeHTML(normalizeCommentHTML(fats.idescribe)) || '<p style="color: #999;">No issue description provided</p>' 
             }}
           />
         </Paper>
@@ -467,42 +516,9 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
         <Paper variant="outlined" sx={{ p: 2, bgcolor: 'white', mb: 3 }}>
           <Box
             onClick={handleFaultLinkClick}
-            sx={{
-              '& p': { marginBottom: '0.5rem', marginTop: 0 },
-              '& p:last-child': { marginBottom: 0 },
-              '& ul, & ol': { paddingLeft: '1.5rem', marginBottom: '0.5rem', marginTop: '0.5rem' },
-              '& li': { marginBottom: '0.25rem' },
-              '& strong, & b': { fontWeight: 'bold' },
-              '& em, & i': { fontStyle: 'italic' },
-              '& u': { textDecoration: 'underline' },
-              '& a': { color: '#1976d2', textDecoration: 'underline', '&:hover': { color: '#115293' } },
-              '& h1': { fontSize: '2rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
-              '& h2': { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '1rem', marginBottom: '0.5rem' },
-              '& h3': { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '0.75rem', marginBottom: '0.5rem' },
-              '& code': { 
-                backgroundColor: 'rgba(0, 0, 0, 0.05)', 
-                padding: '2px 6px', 
-                borderRadius: '3px',
-                fontFamily: 'monospace',
-                fontSize: '0.9em'
-              },
-              '& pre': { 
-                backgroundColor: 'rgba(0, 0, 0, 0.05)', 
-                padding: '1rem', 
-                borderRadius: '4px',
-                overflow: 'auto',
-                '& code': { backgroundColor: 'transparent', padding: 0 }
-              },
-              '& blockquote': { 
-                borderLeft: '4px solid #ccc', 
-                paddingLeft: '1rem', 
-                marginLeft: 0,
-                color: '#666',
-                fontStyle: 'italic'
-              },
-            }}
+            sx={HTML_CONTENT_SX}
             dangerouslySetInnerHTML={{ 
-              __html: sanitizeHTML(fats.sdescribe) || '<p style="color: #999;">No solution description provided</p>' 
+              __html: sanitizeHTML(normalizeCommentHTML(fats.sdescribe)) || '<p style="color: #999;">No solution description provided</p>' 
             }}
           />
         </Paper>
@@ -608,71 +624,63 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
         {comments.length > 0 ? (
           <Box sx={{ mt: 2 }}>
             {comments.map((comment, index) => (
-              <Paper 
-                key={comment.id || index} 
-                variant="outlined" 
-                sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}
+              <Paper
+                key={comment.id || index}
+                elevation={2}
+                sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: '1px solid rgba(0,0,0,0.10)' }}
               >
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, alignItems: 'center' }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                    {comment.commenter || comment.operator || 'Anonymous'}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
+                {/* Comment header — dark strip */}
+                <Box sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  px: 2,
+                  py: 1,
+                  bgcolor: '#37474f',
+                  color: '#fff',
+                }}>
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: '0.92rem', color: '#fff' }}>
+                      {comment.commenter || comment.operator || 'Anonymous'}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.65)', fontSize: '0.75rem' }}>
                       {formatHSTTimestamp(comment.created_at || comment.datein)}
                     </Typography>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleEditComment(comment)}
-                      title="Edit comment"
-                      sx={{ ml: 1 }}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
                   </Box>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleEditComment(comment)}
+                    title="Edit comment"
+                    sx={{ color: 'rgba(255,255,255,0.8)', '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
                 </Box>
+
+                {/* Comment body */}
                 <Box
                   onClick={handleFaultLinkClick}
-                  sx={{
-                    mb: 1,
-                    '& p': { marginBottom: '0.5rem', marginTop: 0 },
-                    '& p:last-child': { marginBottom: 0 },
-                    '& ul, & ol': { paddingLeft: '1.5rem', marginBottom: '0.5rem', marginTop: '0.5rem' },
-                    '& li': { marginBottom: '0.25rem' },
-                    '& strong, & b': { fontWeight: 'bold' },
-                    '& em, & i': { fontStyle: 'italic' },
-                    '& u': { textDecoration: 'underline' },
-                    '& a': { color: '#1976d2', textDecoration: 'underline' },
-                    '& code': { 
-                      backgroundColor: 'rgba(0, 0, 0, 0.05)', 
-                      padding: '2px 4px', 
-                      borderRadius: '3px',
-                      fontFamily: 'monospace',
-                      fontSize: '0.85em'
-                    },
-                  }}
-                  dangerouslySetInnerHTML={{ 
-                    __html: sanitizeHTML(comment.comment_text || comment.sdescribe || comment.comment || comment.content) || '<p style="color: #999;">No comment text</p>' 
+                  sx={{ px: 2, py: 1.5, bgcolor: '#fafafa', ...HTML_CONTENT_SX }}
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeHTML(normalizeCommentHTML(comment.comment_text || comment.sdescribe || comment.comment || comment.content)) || '<p style="color:#999;font-size:0.875rem;">No comment text</p>'
                   }}
                 />
-                {comment.todo && (
-                  <Box sx={{ mt: 1, p: 1, bgcolor: 'info.lighter', borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'info.main' }}>
-                      TODO:
-                    </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {comment.todo}
-                    </Typography>
-                  </Box>
-                )}
-                {comment.solution && (
-                  <Box sx={{ mt: 1, p: 1, bgcolor: 'success.lighter', borderRadius: 1 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'success.main' }}>
-                      Solution:
-                    </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {comment.solution}
-                    </Typography>
+
+                {/* TODO / Solution chips */}
+                {(comment.todo || comment.solution) && (
+                  <Box sx={{ px: 2, pb: 1.5, pt: 0.5, bgcolor: '#fafafa', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                    {comment.todo && (
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, p: 1, bgcolor: '#e3f2fd', borderRadius: 1, borderLeft: '3px solid #1976d2' }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: '#1565c0', minWidth: 42, pt: '1px' }}>TODO:</Typography>
+                        <Typography variant="body2" sx={{ color: '#1a237e', lineHeight: 1.6 }}>{comment.todo}</Typography>
+                      </Box>
+                    )}
+                    {comment.solution && (
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, p: 1, bgcolor: '#e8f5e9', borderRadius: 1, borderLeft: '3px solid #388e3c' }}>
+                        <Typography variant="caption" sx={{ fontWeight: 700, color: '#2e7d32', minWidth: 62, pt: '1px' }}>Solution:</Typography>
+                        <Typography variant="body2" sx={{ color: '#1b5e20', lineHeight: 1.6 }}>{comment.solution}</Typography>
+                      </Box>
+                    )}
                   </Box>
                 )}
               </Paper>

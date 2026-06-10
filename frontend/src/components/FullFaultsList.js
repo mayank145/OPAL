@@ -62,6 +62,7 @@ const FullFaultsList = ({ open, onClose }) => {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const stripHtml = (html) => {
     if (!html) return '';
     const tmp = document.createElement('div');
