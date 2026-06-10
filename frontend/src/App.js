@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Container,
   Typography,
@@ -18,6 +18,13 @@ import {
   Tooltip,
 } from '@mui/material';
 import { Close as CloseIcon, Logout as LogoutIcon } from '@mui/icons-material';
+import {
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useLocation,
+} from 'react-router-dom';
 import FATSList from './components/FATSList';
 import FATSDetail from './components/FATSDetail';
 import FATSDetailInline from './components/FATSDetailInline';
@@ -26,12 +33,60 @@ import ConfirmationDialog from './components/ConfirmationDialog';
 import FullFaultsList from './components/FullFaultsList';
 import SummitLog from './components/SummitLog';
 import WorkPlanCalendar from './components/WorkPlanCalendar';
+import LoginPage from './components/LoginPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
-// import { fatsAPI } from './services/api'; // Available for future use
+import {
+  paths,
+  mainSectionFromPath,
+  parseLegacyFaultHash,
+  isValidLogDate,
+  todayHST,
+} from './routes/paths';
 
-function AppContent() {
+const MAIN_TAB = { id: 'main', label: 'FATS Entries' };
+
+function LoginRoute() {
+  const { user, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return (
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'linear-gradient(135deg, #0d47a1 0%, #0277bd 100%)',
+        }}
+      >
+        <Box sx={{ color: 'rgba(255,255,255,0.85)' }}>Loading…</Box>
+      </Box>
+    );
+  }
+
+  if (user) {
+    const from = location.state?.from?.pathname;
+    return <Navigate to={from && from !== paths.login ? from : paths.home} replace />;
+  }
+
+  return <LoginPage />;
+}
+
+function SummitTodayRedirect() {
+  return <Navigate to={paths.summitDay(todayHST())} replace />;
+}
+
+function SummitInvalidDateRedirect() {
+  return <Navigate to={paths.summitToday()} replace />;
+}
+
+function AppShell() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [fatsDetailOpen, setFatsDetailOpen] = useState(false);
   const [fatsDetailMode, setFatsDetailMode] = useState('view');
   const [selectedFatsId, setSelectedFatsId] = useState(null);
@@ -41,92 +96,142 @@ function AppContent() {
   const [confirmationData, setConfirmationData] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [fullFaultsListOpen, setFullFaultsListOpen] = useState(false);
-  
-  // Main area: FATS vs Summit Log
-  const [mainView, setMainView] = useState('fats');
-  /** Prefill for FATS create when opened from a Summit log entry */
   const [fatsCreateDraft, setFatsCreateDraft] = useState(null);
 
-  // Tab management
   const [activeTab, setActiveTab] = useState(0);
-  const [openTabs, setOpenTabs] = useState([{ id: 'main', label: 'FATS Entries' }]);
-  
-  // Ref for FATSList component to trigger refresh
+  const [openTabs, setOpenTabs] = useState([MAIN_TAB]);
+
   const fatsListRef = useRef(null);
+  const mainView = mainSectionFromPath(location.pathname);
+
+  const routeFatsIdno = useMemo(() => {
+    const m = location.pathname.match(/^\/fats\/(\d+)(?:\/edit)?$/);
+    if (!m) return null;
+    const n = parseInt(m[1], 10);
+    return Number.isNaN(n) ? null : n;
+  }, [location.pathname]);
 
   const showSnackbar = (message, severity = 'success') => {
     setSnackbar({ open: true, message, severity });
   };
 
-  const handleViewFATS = (idno) => {
-    // Check if tab already exists
-    const existingTabIndex = openTabs.findIndex(tab => tab.id === `fats-${idno}`);
-    
-    if (existingTabIndex !== -1) {
-      // Tab exists - do nothing, user stays on current tab
-      // User can manually click the tab if they want to view it
-      return;
-    } else {
-      // Create new tab in background - don't switch to it
-      const newTab = { id: `fats-${idno}`, label: `Fault ${idno}`, fatsId: idno };
-      setOpenTabs([...openTabs, newTab]);
-      // Don't call setActiveTab - user stays on current tab
-    }
-  };
+  const ensureFaultTab = useCallback((idno) => {
+    setOpenTabs((prev) => {
+      if (prev.some((t) => t.fatsId === idno)) return prev;
+      return [...prev, { id: `fats-${idno}`, label: `Fault ${idno}`, fatsId: idno }];
+    });
+  }, []);
 
-  // Expose handleViewFATS globally for internal fault links
+  const handleViewFATS = useCallback(
+    (idno) => {
+      ensureFaultTab(idno);
+      navigate(paths.fatsDetail(idno));
+    },
+    [ensureFaultTab, navigate],
+  );
+
   useEffect(() => {
     window.handleViewFATS = handleViewFATS;
     return () => {
       delete window.handleViewFATS;
     };
-  }, [openTabs]);
+  }, [handleViewFATS]);
 
-  // Check URL on mount for #fault-XXXX and auto-open that fault
+  // Legacy #fault-XXXX → /fats/XXXX
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash && hash.startsWith('#fault-')) {
-      const faultId = hash.replace('#fault-', '');
-      const faultIdNum = parseInt(faultId);
-      if (!isNaN(faultIdNum)) {
-        // Clear the hash from URL
-        window.history.replaceState(null, '', window.location.pathname);
-        // Open the fault
-        handleViewFATS(faultIdNum);
-      }
+    const legacyId = parseLegacyFaultHash(window.location.hash);
+    if (legacyId != null) {
+      window.history.replaceState(null, '', location.pathname + location.search);
+      handleViewFATS(legacyId);
     }
-  }, []); // Run only once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync open tabs + active tab from /fats/:idno routes
+  useEffect(() => {
+    if (!location.pathname.startsWith('/fats')) return;
+
+    if (location.pathname === paths.fats || location.pathname === paths.fatsNew) {
+      setActiveTab(0);
+      return;
+    }
+
+    if (routeFatsIdno != null) {
+      setOpenTabs((prev) => {
+        let tabs = prev;
+        if (!prev.some((t) => t.fatsId === routeFatsIdno)) {
+          tabs = [
+            ...prev,
+            { id: `fats-${routeFatsIdno}`, label: `Fault ${routeFatsIdno}`, fatsId: routeFatsIdno },
+          ];
+        }
+        const idx = tabs.findIndex((t) => t.fatsId === routeFatsIdno);
+        if (idx >= 0) setActiveTab(idx);
+        return tabs;
+      });
+    }
+  }, [location.pathname, routeFatsIdno]);
+
+  // Open create/edit dialog from route
+  useEffect(() => {
+    if (location.pathname === paths.fatsNew) {
+      setFatsCreateDraft(null);
+      setSelectedFatsId(null);
+      setFatsDetailMode('create');
+      setFatsDetailOpen(true);
+      return;
+    }
+    if (routeFatsIdno != null && location.pathname.endsWith('/edit')) {
+      setFatsCreateDraft(null);
+      setSelectedFatsId(routeFatsIdno);
+      setFatsDetailMode('edit');
+      setFatsDetailOpen(true);
+      return;
+    }
+    if (location.pathname.endsWith('/new') || location.pathname.endsWith('/edit')) return;
+    if (fatsDetailOpen && (fatsDetailMode === 'create' || fatsDetailMode === 'edit')) {
+      setFatsDetailOpen(false);
+      setFatsCreateDraft(null);
+    }
+  }, [location.pathname, routeFatsIdno, fatsDetailOpen, fatsDetailMode]);
 
   const handleCloseTab = (tabIndex, event) => {
-    event.stopPropagation(); // Prevent tab switch on close
-    
-    if (openTabs.length === 1) return; // Don't close last tab
-    
+    event.stopPropagation();
+    if (openTabs.length === 1) return;
+
+    const closing = openTabs[tabIndex];
     const newTabs = openTabs.filter((_, index) => index !== tabIndex);
     setOpenTabs(newTabs);
-    
-    // Adjust active tab if needed
-    if (activeTab >= tabIndex) {
-      setActiveTab(Math.max(0, activeTab - 1));
+
+    let newActive = activeTab;
+    if (activeTab >= tabIndex) newActive = Math.max(0, activeTab - 1);
+    setActiveTab(newActive);
+
+    if (activeTab === tabIndex) {
+      const target = newTabs[newActive];
+      if (target.id === 'main') navigate(paths.fats);
+      else navigate(paths.fatsDetail(target.fatsId));
+    } else if (closing.fatsId === routeFatsIdno) {
+      const target = newTabs[activeTab >= tabIndex ? newActive : activeTab];
+      if (target.id === 'main') navigate(paths.fats);
+      else navigate(paths.fatsDetail(target.fatsId));
     }
   };
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
+    const tab = openTabs[newValue];
+    if (!tab) return;
+    if (tab.id === 'main') navigate(paths.fats);
+    else navigate(paths.fatsDetail(tab.fatsId));
   };
 
   const handleEditFATS = (idno) => {
-    setFatsCreateDraft(null);
-    setSelectedFatsId(idno);
-    setFatsDetailMode('edit');
-    setFatsDetailOpen(true);
+    navigate(paths.fatsEdit(idno));
   };
 
   const handleCreateFATS = () => {
-    setFatsCreateDraft(null);
-    setSelectedFatsId(null);
-    setFatsDetailMode('create');
-    setFatsDetailOpen(true);
+    navigate(paths.fatsNew);
   };
 
   const escapeHtmlForFats = (s) => {
@@ -157,15 +262,20 @@ function AppContent() {
       todo: todoParts.join(' · '),
       operator: user?.username || '',
     });
-    setMainView('fats');
     setSelectedFatsId(null);
     setFatsDetailMode('create');
     setFatsDetailOpen(true);
+    navigate(paths.fatsNew);
   };
 
   const handleFatsDetailClose = () => {
     setFatsDetailOpen(false);
     setFatsCreateDraft(null);
+    if (location.pathname === paths.fatsNew) {
+      navigate(paths.fats);
+    } else if (routeFatsIdno != null && location.pathname.endsWith('/edit')) {
+      navigate(paths.fatsDetail(routeFatsIdno));
+    }
   };
 
   const handleAddComment = (fatsId) => {
@@ -175,109 +285,155 @@ function AppContent() {
 
   const handleFATSSave = () => {
     showSnackbar('FATS entry saved successfully!');
-    // Refresh the main FATS list
-    if (fatsListRef.current) {
-      fatsListRef.current.refresh();
-    }
-    // Switch back to main tab if on a different tab
+    if (fatsListRef.current) fatsListRef.current.refresh();
     setActiveTab(0);
+    navigate(paths.fats);
+    setFatsDetailOpen(false);
+    setFatsCreateDraft(null);
   };
 
   const handleCommentSave = (fatsId) => {
     showSnackbar('Comment added successfully!');
-    // Trigger a re-render by updating a timestamp or counter
-    // This will cause FATSDetailInline components to reload
     setCommentDialogOpen(false);
-    
-    // Force re-render of the fault detail by updating a key
-    // Find the tab with this fatsId and update it
-    setOpenTabs(prevTabs => prevTabs.map(tab => {
-      if (tab.fatsId === fatsId) {
-        return { ...tab, lastUpdated: Date.now() };
-      }
-      return tab;
-    }));
-  };
-
-  const renderTabContent = () => {
-    const currentTab = openTabs[activeTab];
-    
-    if (!currentTab) return null;
-    
-    return (
-      <Box>
-        {/* Main FATS List page - Keep mounted but hide when not active */}
-        <Box sx={{ display: currentTab.id === 'main' ? 'block' : 'none' }}>
-          <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ mb: 2 }}>
-            <Button variant="outlined" onClick={() => setFullFaultsListOpen(true)}
-              sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}>
-              📋 Faults List
-            </Button>
-            <Button variant="contained" onClick={handleCreateFATS}
-              sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}>
-              ＋ Create New FATS
-            </Button>
-          </Stack>
-          <FATSList
-            ref={fatsListRef}
-            onViewFATS={handleViewFATS}
-            onEditFATS={handleEditFATS}
-            onAddComment={handleAddComment}
-          />
-        </Box>
-        
-        {/* Fault detail tabs - Render all open fault tabs */}
-        {openTabs.map((tab, index) => {
-          if (tab.id === 'main') return null;
-          
-          return (
-            <Box 
-              key={tab.id} 
-              sx={{ display: activeTab === index ? 'block' : 'none' }}
-            >
-              {/* Use lastUpdated as key to force re-render when comments are added */}
-              <FATSDetailInline 
-                key={tab.lastUpdated || tab.id} 
-                fatsId={tab.fatsId}
-                onEdit={handleEditFATS}
-                onViewFATS={handleViewFATS}
-              />
-            </Box>
-          );
-        })}
-      </Box>
+    setOpenTabs((prevTabs) =>
+      prevTabs.map((tab) =>
+        tab.fatsId === fatsId ? { ...tab, lastUpdated: Date.now() } : tab,
+      ),
     );
   };
 
+  const handleMainViewChange = (e, v) => {
+    if (v == null) return;
+    if (v === 'fats') navigate(paths.fats);
+    else if (v === 'summit') navigate(paths.summitToday());
+    else if (v === 'wpcalendar') {
+      const t = new Date();
+      navigate(paths.summitCalendar(t.getFullYear(), t.getMonth() + 1));
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate(paths.login, { replace: true });
+  };
+
+  const renderFatsContent = () => (
+    <Box>
+      <Box sx={{ display: activeTab === 0 ? 'block' : 'none' }}>
+        <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ mb: 2 }}>
+          <Button
+            variant="outlined"
+            onClick={() => setFullFaultsListOpen(true)}
+            sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}
+          >
+            📋 Faults List
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateFATS}
+            sx={{ borderRadius: 2, fontWeight: 600, textTransform: 'none' }}
+          >
+            ＋ Create New FATS
+          </Button>
+        </Stack>
+        <FATSList
+          ref={fatsListRef}
+          onViewFATS={handleViewFATS}
+          onEditFATS={handleEditFATS}
+          onAddComment={handleAddComment}
+        />
+      </Box>
+      {openTabs.map((tab, index) => {
+        if (tab.id === 'main') return null;
+        return (
+          <Box key={tab.id} sx={{ display: activeTab === index ? 'block' : 'none' }}>
+            <FATSDetailInline
+              key={tab.lastUpdated || tab.id}
+              fatsId={tab.fatsId}
+              onEdit={handleEditFATS}
+              onViewFATS={handleViewFATS}
+            />
+          </Box>
+        );
+      })}
+    </Box>
+  );
+
+  const summitDateParam = useMemo(() => {
+    const m = location.pathname.match(/^\/summit\/(\d{4}-\d{2}-\d{2})$/);
+    return m ? m[1] : null;
+  }, [location.pathname]);
+  const summitDateValid =
+    summitDateParam && isValidLogDate(summitDateParam) ? summitDateParam : null;
+
   return (
     <Box sx={{ flexGrow: 1, minHeight: '100vh', backgroundColor: '#f0f2f5', overflowY: 'auto' }}>
-      <AppBar position="static" elevation={0}
-        sx={{ background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)', borderBottom: '1px solid rgba(255,255,255,0.12)', overflow: 'visible' }}>
-        <Toolbar sx={{ minHeight: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap', gap: 1, px: { xs: 1, sm: 2 } }}>
-          {/* Left: logo + title */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+      <AppBar
+        position="static"
+        elevation={0}
+        sx={{
+          background: 'linear-gradient(135deg, #0d47a1 0%, #1565c0 50%, #0277bd 100%)',
+          borderBottom: '1px solid rgba(255,255,255,0.12)',
+          overflow: 'visible',
+        }}
+      >
+        <Toolbar
+          sx={{
+            minHeight: 60,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'nowrap',
+            gap: 1,
+            px: { xs: 1, sm: 2 },
+          }}
+        >
+          <Box
+            component="a"
+            href={paths.fats}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(paths.fats);
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1.5,
+              flexShrink: 0,
+              textDecoration: 'none',
+              color: 'inherit',
+            }}
+          >
             <Box
               component="img"
               src="/subaru_logo.png"
               alt="Subaru Telescope"
-              sx={{ width: 42, height: 42, objectFit: 'contain', flexShrink: 0, filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.4))' }}
+              sx={{
+                width: 42,
+                height: 42,
+                objectFit: 'contain',
+                flexShrink: 0,
+                filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.4))',
+              }}
             />
             <Box>
               <Typography variant="h6" component="div" sx={{ fontWeight: 700, letterSpacing: 0.5, lineHeight: 1.1 }}>
                 OPAL
               </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.75, letterSpacing: 1, textTransform: 'uppercase', fontSize: '0.6rem' }}>
+              <Typography
+                variant="caption"
+                sx={{ opacity: 0.75, letterSpacing: 1, textTransform: 'uppercase', fontSize: '0.6rem' }}
+              >
                 Subaru Telescope Operations
               </Typography>
             </Box>
           </Box>
 
-          {/* Center: nav buttons */}
           <ToggleButtonGroup
             value={mainView}
             exclusive
             size="small"
-            onChange={(e, v) => v != null && setMainView(v)}
+            onChange={handleMainViewChange}
             aria-label="main view"
             sx={{
               bgcolor: 'rgba(0,0,0,0.2)',
@@ -307,7 +463,6 @@ function AppContent() {
             <ToggleButton value="wpcalendar">📅 WP Calendar</ToggleButton>
           </ToggleButtonGroup>
 
-          {/* Right: user info + logout */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
             {user && (
               <Chip
@@ -324,7 +479,7 @@ function AppContent() {
             )}
             <Tooltip title="Logout">
               <IconButton
-                onClick={logout}
+                onClick={handleLogout}
                 size="small"
                 sx={{ color: 'rgba(255,255,255,0.8)', '&:hover': { color: '#fff' } }}
                 aria-label="logout"
@@ -336,9 +491,15 @@ function AppContent() {
         </Toolbar>
       </AppBar>
 
-      {/* Tabs Bar (FATS only) */}
       {mainView === 'fats' && (
-        <Box sx={{ borderBottom: '2px solid', borderColor: 'divider', bgcolor: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <Box
+          sx={{
+            borderBottom: '2px solid',
+            borderColor: 'divider',
+            bgcolor: '#fff',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+          }}
+        >
           <Tabs
             value={activeTab}
             onChange={handleTabChange}
@@ -360,11 +521,7 @@ function AppContent() {
                       <IconButton
                         size="small"
                         onClick={(e) => handleCloseTab(index, e)}
-                        sx={{
-                          ml: 0.5,
-                          p: 0.25,
-                          '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
-                        }}
+                        sx={{ ml: 0.5, p: 0.25, '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' } }}
                       >
                         <CloseIcon fontSize="small" />
                       </IconButton>
@@ -378,24 +535,61 @@ function AppContent() {
       )}
 
       <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-        {mainView === 'summit' ? (
-          <SummitLog
-            onError={(msg, severity) => showSnackbar(msg, severity)}
-            onCreateFatsFromSummit={handleCreateFatsFromSummit}
-          />
-        ) : mainView === 'wpcalendar' ? (
-          <WorkPlanCalendar
-            onOpenSummitLog={(dateStr) => {
-              setMainView('summit');
-              // SummitLog will pick up the date via its own state
-              window._summitLogJumpDate = dateStr;
-            }}
-          />
-        ) : (
-          renderTabContent()
-        )}
+        <Routes>
+          <Route path="/" element={<Navigate to={paths.home} replace />} />
 
-        {/* FATS Detail Dialog */}
+          <Route path="/fats" element={renderFatsContent()} />
+          <Route path="/fats/new" element={renderFatsContent()} />
+          <Route path="/fats/:idno" element={renderFatsContent()} />
+          <Route path="/fats/:idno/edit" element={renderFatsContent()} />
+
+          <Route
+            path="/summit/calendar/:year/:month"
+            element={
+              <WorkPlanCalendar
+                onOpenSummitLog={(dateStr) => navigate(paths.summitDay(dateStr))}
+              />
+            }
+          />
+          <Route
+            path="/summit/search"
+            element={
+              <SummitLog
+                onError={(msg, severity) => showSnackbar(msg, severity)}
+                onCreateFatsFromSummit={handleCreateFatsFromSummit}
+                routePanel="search"
+              />
+            }
+          />
+          <Route
+            path="/summit/years/:year"
+            element={
+              <SummitLog
+                onError={(msg, severity) => showSnackbar(msg, severity)}
+                onCreateFatsFromSummit={handleCreateFatsFromSummit}
+                routePanel="year"
+              />
+            }
+          />
+          <Route
+            path="/summit/:date"
+            element={
+              summitDateParam && !summitDateValid ? (
+                <SummitInvalidDateRedirect />
+              ) : (
+                <SummitLog
+                  onError={(msg, severity) => showSnackbar(msg, severity)}
+                  onCreateFatsFromSummit={handleCreateFatsFromSummit}
+                  routeDate={summitDateValid}
+                />
+              )
+            }
+          />
+          <Route path="/summit" element={<SummitTodayRedirect />} />
+
+          <Route path="*" element={<Navigate to={paths.home} replace />} />
+        </Routes>
+
         <FATSDetail
           open={fatsDetailOpen}
           fatsId={selectedFatsId}
@@ -406,7 +600,6 @@ function AppContent() {
           createDraft={fatsCreateDraft}
         />
 
-        {/* Comment Dialog */}
         <CommentDialog
           open={commentDialogOpen}
           fatsId={commentFatsId}
@@ -414,27 +607,19 @@ function AppContent() {
           onSave={handleCommentSave}
         />
 
-        {/* Confirmation Dialog */}
         <ConfirmationDialog
           open={confirmationOpen}
           title={confirmationData?.title}
           message={confirmationData?.message}
           onConfirm={() => {
-            if (confirmationData?.onConfirm) {
-              confirmationData.onConfirm();
-            }
+            if (confirmationData?.onConfirm) confirmationData.onConfirm();
             setConfirmationOpen(false);
           }}
           onCancel={() => setConfirmationOpen(false)}
         />
 
-        {/* Full Faults List Dialog */}
-        <FullFaultsList
-          open={fullFaultsListOpen}
-          onClose={() => setFullFaultsListOpen(false)}
-        />
+        <FullFaultsList open={fullFaultsListOpen} onClose={() => setFullFaultsListOpen(false)} />
 
-        {/* Snackbar for notifications */}
         <Snackbar
           open={snackbar.open}
           autoHideDuration={4000}
@@ -457,9 +642,17 @@ function AppContent() {
 function App() {
   return (
     <AuthProvider>
-      <ProtectedRoute>
-        <AppContent />
-      </ProtectedRoute>
+      <Routes>
+        <Route path={paths.login} element={<LoginRoute />} />
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <AppShell />
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
     </AuthProvider>
   );
 }

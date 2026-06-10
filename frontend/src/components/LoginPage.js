@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { keyframes } from '@emotion/react';
 import {
   Alert,
@@ -68,6 +69,8 @@ function useSlideshow(total) {
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const current   = useSlideshow(SLIDES.length);
 
   const [username, setUsername]           = useState('');
@@ -88,6 +91,8 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(username.trim(), password);
+      const from = location.state?.from?.pathname;
+      navigate(from && from !== '/login' ? from : '/fats', { replace: true });
     } catch (err) {
       const detail = err.response?.data?.detail;
       if (err.response?.status === 403) {

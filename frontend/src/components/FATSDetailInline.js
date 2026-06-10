@@ -165,7 +165,7 @@ const FATSDetailInline = ({ fatsId, onEdit, onViewFATS }) => {
     // Convert internal fault reference links (#fault-XXXX) to functional links
     // These are created by the "#" button in the editor
     // Match both <a href="#fault-XXXX"> and <a target="..." href="#fault-XXXX">
-    const faultLinkRegex = /<a\s+([^>]*?)href="#fault-(\d+)"([^>]*)>(.*?)<\/a>/gi;
+    const faultLinkRegex = /<a\s+([^>]*?)href="(?:#fault-|\/fats\/)(\d+)"([^>]*)>(.*?)<\/a>/gi;
     htmlWithLinks = htmlWithLinks.replace(faultLinkRegex, (match, before, faultId, after, text) => {
       // Strip out ALL attributes and create a clean link - no target="_blank"
       return `<a href="javascript:void(0)" data-fault-id="${faultId}" class="fault-reference-link" style="color: #1976d2; text-decoration: underline; cursor: pointer;">${text}</a>`;

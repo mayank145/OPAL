@@ -8,8 +8,10 @@ import AddIcon from '@mui/icons-material/Add';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import TodayIcon from '@mui/icons-material/Today';
+import { useNavigate, useParams } from 'react-router-dom';
 import { summitAPI } from '../services/api';
 import { WorkPlanDialog } from './SummitLog';
+import { paths } from '../routes/paths';
 
 // ── helpers (mirrors SummitLog.js) ─────────────────────────────────────────
 function toUtcIso(logDate, hhmm) {
@@ -56,9 +58,17 @@ function buildCalendarGrid(year, month) {
 function pad2(n) { return String(n).padStart(2, '0'); }
 
 export default function WorkPlanCalendar({ onOpenSummitLog }) {
+  const navigate = useNavigate();
+  const { year: yearParam, month: monthParam } = useParams();
   const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
+  const parsedYear = parseInt(yearParam, 10);
+  const parsedMonth = parseInt(monthParam, 10);
+  const [year, setYear] = useState(
+    !Number.isNaN(parsedYear) && parsedYear >= 2000 ? parsedYear : today.getFullYear(),
+  );
+  const [month, setMonth] = useState(
+    !Number.isNaN(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12 ? parsedMonth : today.getMonth() + 1,
+  );
   const [wpByDate, setWpByDate] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -84,15 +94,28 @@ export default function WorkPlanCalendar({ onOpenSummitLog }) {
 
   useEffect(() => { load(year, month); }, [year, month, load]);
 
+  useEffect(() => {
+    const y = parseInt(yearParam, 10);
+    const m = parseInt(monthParam, 10);
+    if (!Number.isNaN(y) && y >= 2000) setYear(y);
+    if (!Number.isNaN(m) && m >= 1 && m <= 12) setMonth(m);
+  }, [yearParam, monthParam]);
+
+  const goToMonth = (y, m) => {
+    setYear(y);
+    setMonth(m);
+    navigate(paths.summitCalendar(y, m));
+  };
+
   const prevMonth = () => {
-    if (month === 1) { setYear(y => y - 1); setMonth(12); }
-    else setMonth(m => m - 1);
+    if (month === 1) goToMonth(year - 1, 12);
+    else goToMonth(year, month - 1);
   };
   const nextMonth = () => {
-    if (month === 12) { setYear(y => y + 1); setMonth(1); }
-    else setMonth(m => m + 1);
+    if (month === 12) goToMonth(year + 1, 1);
+    else goToMonth(year, month + 1);
   };
-  const goToday = () => { setYear(today.getFullYear()); setMonth(today.getMonth() + 1); };
+  const goToday = () => goToMonth(today.getFullYear(), today.getMonth() + 1);
 
   // Open WorkPlanDialog for an existing WP
   const openEditWP = (wp, dateStr) => {

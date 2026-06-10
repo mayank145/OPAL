@@ -15,8 +15,10 @@ import {
   PostAdd as PostAddIcon, ContentCopy as ContentCopyIcon,
   Email as EmailIcon, AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { summitAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { paths, isValidLogDate } from '../routes/paths';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -681,7 +683,15 @@ export function WorkPlanDialog({ open, onClose, onSave, saving, initial = {}, cu
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function SummitLog({ onError, onCreateFatsFromSummit }) {
+const SUMMIT_VIEW_TABS = ['summary', 'toio', 'daycrew', 'workplan', 'crew', 'programs', 'trouble'];
+
+export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, routePanel }) {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const isSearchRoute = routePanel === 'search' || location.pathname === paths.summitSearch;
+  const searchSectionRef = React.useRef(null);
+
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -817,14 +827,15 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
   }, [monthPayload]);
 
   useEffect(() => {
+    if (routeDate) return;
     const days = monthPayload?.days || [];
     if (!days.length) return;
     const last = parseDate(days[days.length - 1].log_date);
     if (!selectedDate || !daysWithLog.has(selectedDate)) loadDay(last);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthPayload]);
+  }, [monthPayload, routeDate]);
 
-  const loadDay = useCallback(async (logDate) => {
+  const fetchDay = useCallback(async (logDate) => {
     setSelectedDate(logDate);
     setDayLoading(true); setDayError(null); setDayData(null);
     setEditorOpen(false); setEditorCard(null); setEditor(EMPTY_EDITOR); setEditingHeader(false);
@@ -838,6 +849,19 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadDay = useCallback(async (logDate, { updateUrl = true } = {}) => {
+    if (updateUrl && isValidLogDate(logDate)) {
+      const view = searchParams.get('view');
+      const item = searchParams.get('item');
+      const qs = new URLSearchParams();
+      if (view && view !== 'summary') qs.set('view', view);
+      if (item) qs.set('item', item);
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      navigate(`${paths.summitDay(logDate)}${suffix}`);
+    }
+    await fetchDay(logDate);
+  }, [fetchDay, navigate, searchParams]);
+
   // ── Calendar navigation ───────────────────────────────────────────────────
   const goPrev = () => { if (month === 1) { setYear(y => y - 1); setMonth(12); } else setMonth(m => m - 1); };
   const goNext = () => { if (month === 12) { setYear(y => y + 1); setMonth(1); } else setMonth(m => m + 1); };
@@ -846,6 +870,105 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
     setYear(t.getFullYear()); setMonth(t.getMonth() + 1);
     loadDay(fmtDate(t.getFullYear(), t.getMonth() + 1, t.getDate()));
   };
+
+  const handleViewTabChange = (_, v) => {
+    setViewTab(v);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (!v || v === 'summary') next.delete('view');
+      else next.set('view', v);
+      return next;
+    }, { replace: true });
+  };
+
+  const openSearchRoute = () => {
+    navigate(paths.summitSearch);
+  };
+
+  const openYearRoute = (y) => {
+    navigate(paths.summitYear(y));
+  };
+
+  useEffect(() => {
+    const v = searchParams.get('view');
+    if (v && SUMMIT_VIEW_TABS.includes(v)) setViewTab(v);
+    else if (!v) setViewTab('summary');
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!routeDate || !isValidLogDate(routeDate)) return;
+    const [y, m] = routeDate.split('-').map(Number);
+    setYear(y);
+    setMonth(m);
+    fetchDay(routeDate);
+  }, [routeDate, fetchDay]);
+
+  useEffect(() => {
+    const itemId = searchParams.get('item');
+    if (!itemId || !selectedDate) return;
+    const id = parseInt(itemId, 10);
+    if (Number.isNaN(id)) return;
+    setHighlightItemId(id);
+    const t = setTimeout(() => {
+      const el = document.getElementById(`log-item-${id}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => setHighlightItemId(null), 3000);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchParams, selectedDate, dayData]);
+
+  useEffect(() => {
+    if (routePanel !== 'year') return;
+    const m = location.pathname.match(/\/summit\/years\/(\d+)$/);
+    if (m) {
+      const y = parseInt(m[1], 10);
+      if (!isNaN(y)) {
+        setYear(y);
+        setYearOverviewOpen(true);
+      }
+    }
+  }, [routePanel, location.pathname]);
+
+  useEffect(() => {
+    if (!isSearchRoute) return;
+    const t = setTimeout(() => {
+      searchSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [isSearchRoute]);
+
+  useEffect(() => {
+    if (!isSearchRoute) return;
+    const q = searchParams.get('q');
+    if (!q?.trim()) return;
+    setSearchQ(q);
+    setSearchFromDate(searchParams.get('from_date') || '');
+    setSearchToDate(searchParams.get('to_date') || '');
+    setSearchCrew(searchParams.get('crew_tab') || '');
+    const run = async () => {
+      setSearchLoading(true);
+      setSearchError(null);
+      setSearchOffset(0);
+      try {
+        const params = { q: q.trim(), limit: SEARCH_LIMIT, offset: 0 };
+        const from = searchParams.get('from_date');
+        const to = searchParams.get('to_date');
+        const crew = searchParams.get('crew_tab');
+        if (from) params.from_date = from;
+        if (to) params.to_date = to;
+        if (crew) params.crew_tab = crew;
+        setSearchResult(await summitAPI.search(params));
+      } catch (e) {
+        const msg = e.response?.data?.detail || e.message || 'Search failed';
+        setSearchError(msg);
+        notify(msg);
+      } finally {
+        setSearchLoading(false);
+      }
+    };
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSearchRoute, searchParams.toString()]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstWd = new Date(year, month - 1, 1).getDay();
@@ -1176,8 +1299,20 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
   const runSearch = async (offsetOverride = 0) => {
     const q = searchQ.trim();
     if (!q) return;
-    setSearchLoading(true); setSearchError(null);
     const off = offsetOverride;
+    if (off === 0) {
+      const qs = new URLSearchParams({ q });
+      if (searchFromDate) qs.set('from_date', searchFromDate);
+      if (searchToDate) qs.set('to_date', searchToDate);
+      if (searchCrew) qs.set('crew_tab', searchCrew);
+      const target = `${paths.summitSearch}?${qs.toString()}`;
+      if (location.pathname + location.search !== target) {
+        navigate(target);
+        if (!isSearchRoute) return;
+      }
+    }
+    setSearchLoading(true);
+    setSearchError(null);
     setSearchOffset(off);
     try {
       const params = { q, limit: SEARCH_LIMIT, offset: off };
@@ -1186,8 +1321,13 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
       if (searchCrew) params.crew_tab = searchCrew;
       const data = await summitAPI.search(params);
       setSearchResult(off === 0 ? data : (prev) => ({ total: data.total, items: [...(prev?.items || []), ...data.items] }));
-    } catch (e) { const msg = e.response?.data?.detail || e.message || 'Search failed'; setSearchError(msg); notify(msg); }
-    finally { setSearchLoading(false); }
+    } catch (e) {
+      const msg = e.response?.data?.detail || e.message || 'Search failed';
+      setSearchError(msg);
+      notify(msg);
+    } finally {
+      setSearchLoading(false);
+    }
   };
 
   // ── Derived filtered lists ────────────────────────────────────────────────
@@ -1362,7 +1502,18 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
             size="small"
             variant="outlined"
             endIcon={yearOverviewOpen ? <ExpandLess /> : <ExpandMore />}
-            onClick={() => setYearOverviewOpen((o) => !o)}
+            onClick={() => {
+              if (yearOverviewOpen) {
+                setYearOverviewOpen(false);
+                if (routePanel === 'year') {
+                  if (selectedDate) navigate(paths.summitDay(selectedDate));
+                  else navigate(paths.summitToday());
+                }
+              } else {
+                openYearRoute(year);
+                setYearOverviewOpen(true);
+              }
+            }}
             sx={{ fontWeight: 600, textTransform: 'none', borderRadius: 2 }}
           >
             {year} at a glance
@@ -1545,7 +1696,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
 
           {!dayLoading && dayData && (
             <Box sx={{ px: 0 }}>
-              <Tabs value={viewTab} onChange={(_, v) => setViewTab(v)} variant="scrollable" scrollButtons="auto"
+              <Tabs value={viewTab} onChange={handleViewTabChange} variant="scrollable" scrollButtons="auto"
                 sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 1,
                   '& .MuiTab-root': { fontWeight: 600, fontSize: '0.82rem', minHeight: 44, textTransform: 'none' },
                   '& .Mui-selected': { color: '#00695c' },
@@ -2092,9 +2243,15 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
       )}
 
       {/* ── Search Panel ── */}
-      <Paper elevation={3} sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
-        <Box sx={{ px: 2.5, py: 1.75, background: 'linear-gradient(90deg, #004d40 0%, #00695c 100%)', color: '#fff' }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ letterSpacing: 0.3 }}>🔍 Search Log Entries</Typography>
+      <Paper ref={searchSectionRef} elevation={3} sx={{ borderRadius: 2.5, overflow: 'hidden' }}>
+        <Box sx={{ px: 2.5, py: 1.75, background: 'linear-gradient(90deg, #004d40 0%, #00695c 100%)', color: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ letterSpacing: 0.3, flex: 1 }}>🔍 Search Log Entries</Typography>
+          {!isSearchRoute && (
+            <Button size="small" variant="outlined" onClick={openSearchRoute}
+              sx={{ color: '#fff', borderColor: 'rgba(255,255,255,0.5)', textTransform: 'none', fontWeight: 600 }}>
+              Open search page
+            </Button>
+          )}
         </Box>
         <Box sx={{ p: 2.5 }}>
         <Stack spacing={1.5}>
@@ -2148,7 +2305,8 @@ export default function SummitLog({ onError, onCreateFatsFromSummit }) {
                             const [y, m] = ld.split('-').map(Number);
                             setYear(y); setMonth(m);
                             setHighlightItemId(item.id);
-                            loadDay(ld).then(() => {
+                            navigate(`${paths.summitDay(ld)}?item=${item.id}`);
+                            loadDay(ld, { updateUrl: false }).then(() => {
                               setTimeout(() => {
                                 const el = document.getElementById(`log-item-${item.id}`);
                                 if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });

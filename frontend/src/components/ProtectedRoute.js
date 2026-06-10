@@ -1,18 +1,17 @@
 /**
- * ProtectedRoute — replaces PHP's door.php guard.
- *
- * While the session check is in-flight → show a full-screen spinner.
- * If no authenticated user → show <LoginPage />.
- * If authenticated → render the app children.
+ * ProtectedRoute — requires an authenticated session.
+ * Unauthenticated users are sent to /login with return location preserved.
  */
 
 import React from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Box, CircularProgress } from '@mui/material';
 import { useAuth } from '../context/AuthContext';
-import LoginPage from './LoginPage';
+import { paths } from '../routes/paths';
 
 export default function ProtectedRoute({ children }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -31,7 +30,7 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!user) {
-    return <LoginPage />;
+    return <Navigate to={paths.login} replace state={{ from: location }} />;
   }
 
   return children;

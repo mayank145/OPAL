@@ -101,7 +101,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
         },
         validate: href => {
           // Allow internal fault links (#fault-XXXX) or standard URLs
-          return href.startsWith('#fault-') || /^https?:\/\//.test(href);
+          return href.startsWith('#fault-') || /^\/fats\/\d+/.test(href) || /^https?:\/\//.test(href);
         },
       }),
       Image,
@@ -158,7 +158,7 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
         },
         validate: href => {
           // Allow internal fault links (#fault-XXXX) or standard URLs
-          return href.startsWith('#fault-') || /^https?:\/\//.test(href);
+          return href.startsWith('#fault-') || /^\/fats\/\d+/.test(href) || /^https?:\/\//.test(href);
         },
       }),
       Image,
@@ -262,17 +262,18 @@ const FATSDetail = ({ open, fatsId, onClose, onSave, mode = 'view', onFaultRefer
       
       const href = target.getAttribute('href');
       
-      // Check if it's an internal fault link (#fault-XXXX)
-      if (href && href.startsWith('#fault-')) {
+      // Internal fault links: #fault-XXXX or /fats/XXXX
+      const faultMatch = href && (
+        href.startsWith('#fault-')
+          ? href.replace('#fault-', '')
+          : (href.match(/^\/fats\/(\d+)/) || [])[1]
+      );
+      if (faultMatch) {
         e.preventDefault();
         e.stopPropagation();
-        const faultId = href.replace('#fault-', '');
-        const faultIdNum = parseInt(faultId);
-        
+        const faultIdNum = parseInt(faultMatch, 10);
         if (!isNaN(faultIdNum) && window.handleViewFATS) {
-          // Close current dialog first
           onClose();
-          // Open the linked fault
           window.handleViewFATS(faultIdNum);
         }
       }

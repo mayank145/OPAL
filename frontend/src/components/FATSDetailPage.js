@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { paths } from '../routes/paths';
 import {
   Container,
   AppBar,
@@ -13,6 +15,7 @@ import { ArrowBack as ArrowBackIcon } from '@mui/icons-material';
 import FATSDetail from './FATSDetail';
 
 const FATSDetailPage = ({ fatsId }) => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,7 +27,7 @@ const FATSDetailPage = ({ fatsId }) => {
     window.close(); // Close the tab
     // If window.close() doesn't work (opened via link, not window.open), navigate back
     setTimeout(() => {
-      window.location.href = '/';
+      navigate(paths.fats);
     }, 100);
   };
 

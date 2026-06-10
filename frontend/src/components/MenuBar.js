@@ -1,4 +1,5 @@
 import React from 'react';
+import { paths } from '../routes/paths';
 import { Button, ButtonGroup, Divider } from '@mui/material';
 import {
   FormatBold,
@@ -125,7 +126,7 @@ const MenuBar = ({ editor }) => {
       <ButtonGroup size="small" variant="outlined">
         <Button
           onClick={() => {
-            const url = window.prompt('Enter URL (or #fault-XXXX for internal fault link):');
+            const url = window.prompt('Enter URL (or /fats/4767 for internal fault link):');
             if (url) {
               editor.chain().focus().setLink({ href: url }).run();
             } else if (url === '') {
@@ -146,7 +147,7 @@ const MenuBar = ({ editor }) => {
                 editor
                   .chain()
                   .focus()
-                  .insertContent(`<a href="#fault-${faultNumber}">Fault #${faultNumber}</a> `)
+                  .insertContent(`<a href="${paths.fatsFaultLink(faultNumber)}">Fault #${faultNumber}</a> `)
                   .run();
               } else {
                 alert('Please enter a valid fault ID number');
