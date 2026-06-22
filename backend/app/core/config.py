@@ -38,21 +38,26 @@ class Settings(BaseSettings):
     )
     mariadb_async_database_url: str = os.getenv("MARIADB_ASYNC_DATABASE_URL", async_database_url)
 
-    # Postgres database (new Summit Logging domain)
+    # Postgres (optional — ETL scripts only; Summit API uses sumlogs MariaDB)
     summit_async_database_url: str = os.getenv(
         "SUMMIT_ASYNC_DATABASE_URL",
         "postgresql+asyncpg://postgres:postgres@localhost:5432/opal_summit"
     )
-    # Sync URL for one-off ETL (psycopg2). Defaults from SUMMIT_ASYNC_DATABASE_URL if unset.
     summit_sync_database_url: str = os.getenv("SUMMIT_SYNC_DATABASE_URL", "")
 
-    # Legacy MariaDB `sumlogs` (Summit) — used by migrate_sumlogs_to_postgres.py
+    # Legacy MariaDB `sumlogs` — primary Summit Logging database (days, items, progs)
     sumlogs_database_url: str = os.getenv("SUMLOGS_DATABASE_URL", "")
 
     # MariaDB `clients` database — holds users, sessions, staff, props, etc.
     clients_async_database_url: str = os.getenv(
         "CLIENTS_ASYNC_DATABASE_URL",
         "mysql+aiomysql://opal:opal_password@localhost:3306/clients"
+    )
+
+    # Remote legacy `clients` DB on opal server — for nightly program schedule (clients.alloc)
+    legacy_clients_database_url: str = os.getenv(
+        "LEGACY_CLIENTS_DATABASE_URL",
+        "mysql+aiomysql://root:kulaiwi7@opal:3306/clients"
     )
     
     # Security

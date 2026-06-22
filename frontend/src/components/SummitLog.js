@@ -14,18 +14,19 @@ import {
   Save as SaveIcon, Cancel as CancelIcon, ExpandMore, ExpandLess,
   PostAdd as PostAddIcon, ContentCopy as ContentCopyIcon,
   Email as EmailIcon, AccessTime as AccessTimeIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { summitAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { paths, isValidLogDate } from '../routes/paths';
+import { paths, isValidLogDate, todayHST } from '../routes/paths';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const TYPE_OPTIONS = ['Comment', 'Trouble', 'Summary', 'Warning', 'Important'];
 const CREW_TABS = ['TO', 'IO', 'DC', 'WP', 'ALL', 'TO-IO'];
 const CREW_ROLES = ['TO', 'IO', 'DC'];
-const SUBSYSTEMS = ['None', 'Dome', 'Telescope', 'Instrument', 'AO', 'Electronics', 'Software', 'Other'];
+const SUBSYSTEMS = ['', 'Tel', 'Inst', 'SOSS', 'Weather', 'Operations', 'Others'];
 const INTERVENE_OPTIONS = ['Choose', 'No', 'Yes'];
 
 const TYPE_COLOR = {
@@ -66,18 +67,37 @@ function nowHSThmm() {
   });
 }
 
+// Store times as naive HST strings. The backend tags all naive datetimes as
+// HST (-10:00) on read, so they display correctly in any browser timezone.
 function toUtcIso(logDate, hhmm) {
   if (!logDate || !hhmm || !hhmm.includes(':')) return null;
   const [y, m, d] = logDate.split('-').map(Number);
   const [hh, mm] = hhmm.split(':').map(Number);
   if ([y, m, d, hh, mm].some(Number.isNaN)) return null;
-  return new Date(Date.UTC(y, m - 1, d, hh + 10, mm)).toISOString();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${String(y).padStart(4, '0')}-${p(m)}-${p(d)}T${p(hh)}:${p(mm)}:00`;
 }
 
 function weatherVal(raw, numeric, suffix = '') {
   if (raw && String(raw).trim()) return String(raw).trim();
   if (numeric != null && numeric !== '') return `${numeric}${suffix}`;
   return 'N/A';
+}
+
+function formatApiError(detail) {
+  if (!detail) return 'Request failed';
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((e) => e.msg || e.message || JSON.stringify(e)).join('; ');
+  }
+  return String(detail);
+}
+
+function pickDefaultLogDate(days) {
+  if (!days?.length) return null;
+  const withEntries = [...days].reverse().find((d) => (d.entry_count || 0) > 0);
+  const pick = withEntries || days[days.length - 1];
+  return parseDate(pick.log_date);
 }
 
 // ── Design tokens ────────────────────────────────────────────────────────────
@@ -174,7 +194,7 @@ function LogItemEditor({ editor, setEditor, onSave, onCancel, saving, selectedDa
           <InputLabel>Subsystem</InputLabel>
           <Select value={editor.subsystem} label="Subsystem"
             onChange={(e) => setEditor((p) => ({ ...p, subsystem: e.target.value }))}>
-            {SUBSYSTEMS.map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
+            {SUBSYSTEMS.map((o) => <MenuItem key={o} value={o}>{o || '— none —'}</MenuItem>)}
           </Select>
         </FormControl>
         {showDowntime && (
@@ -295,10 +315,26 @@ function LogItemRow({ item, onEdit, onDelete, onCreateFatsFromSummit, logDate, h
   );
 }
 
+// ── Program dialog constants — sourced from sumlogs.refer table ──────────────
+// INSTR options (sumlogs.refer WHERE code='INSTR', ordered by seq)
+const PROG_INSTR_OPTIONS = [
+  'Choose', 'CHARIS', 'CIAO', 'CISCO', 'COMICS', 'FMOS', 'FOCAS',
+  'HDS', 'HICIAO', 'HIPWAC', 'HSC', 'IRCS', 'IRCS/AO', 'IRD',
+  'K3D', 'MIMIZUKU', 'MIRTOS', 'MOIRCS', 'None', 'OHS',
+  'PFS', 'SWIMS', 'SupCam',
+];
+// ALLOC options (sumlogs.refer WHERE code='ALLOC', ordered by seq)
+const PROG_ALLOC_OPTIONS = [
+  'Choose', 'OpenUse', 'InstrEng', 'TelEng', 'UHObs',
+  'ServiceObs', 'StaffObs', 'DiscTime', 'GuarTime',
+];
+const PROG_AO_OPTIONS = ['', 'AO188', 'SCExAO', 'RAVEN', 'No'];
+const PROG_LOC_OPTIONS = ['', 'Summit', 'Base', 'HP', 'GERS', 'Mitaka', 'Zoom', 'Other'];
+
 // ── Program Form Dialog ──────────────────────────────────────────────────────
 function ProgramDialog({ open, onClose, onSave, saving, initial = {} }) {
   const blank = {
-    instr: '', alloc: '', pi: '', ao1: '', ao2: '',
+    instr: 'Choose', alloc: 'Choose', pi: '', ao1: '', ao2: '',
     gid: '', propid: '', slotStart: '', slotEnd: '',
     obs1: '', obs1loc: '', obs2: '', obs2loc: '',
     obs3: '', obs3loc: '', obs4: '', obs4loc: '',
@@ -308,12 +344,25 @@ function ProgramDialog({ open, onClose, onSave, saving, initial = {} }) {
   };
   const [form, setForm] = useState({ ...blank, ...initial });
   useEffect(() => { setForm({ ...blank, ...initial }); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const f = (key) => ({ size: 'small', value: form[key], onChange: (e) => setForm((p) => ({ ...p, [key]: e.target.value })) });
+
+  const f = (key) => ({
+    size: 'small', value: form[key],
+    onChange: (e) => setForm((p) => ({ ...p, [key]: e.target.value })),
+  });
+  const sel = (key, options) => (
+    <FormControl size="small" sx={{ minWidth: 120 }}>
+      <Select value={form[key]} displayEmpty
+        onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}>
+        {options.map((o) => <MenuItem key={o} value={o}>{o || '— —'}</MenuItem>)}
+      </Select>
+    </FormControl>
+  );
   const row = (fields) => (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
       {fields}
     </Stack>
   );
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ background: 'linear-gradient(90deg,#00695c,#00897b)', color: '#fff', py: 1.5 }}>
@@ -321,44 +370,50 @@ function ProgramDialog({ open, onClose, onSave, saving, initial = {} }) {
       </DialogTitle>
       <DialogContent dividers>
         {row([
-          <TextField key="instr" {...f('instr')} label="Instrument" sx={{ maxWidth: 120 }} />,
-          <TextField key="alloc" {...f('alloc')} label="Alloc" sx={{ maxWidth: 100 }} />,
+          <Box key="instr">
+            <Typography variant="caption" color="text.secondary">Instrument</Typography>
+            {sel('instr', PROG_INSTR_OPTIONS)}
+          </Box>,
+          <Box key="alloc">
+            <Typography variant="caption" color="text.secondary">Alloc</Typography>
+            {sel('alloc', PROG_ALLOC_OPTIONS)}
+          </Box>,
           <TextField key="pi" {...f('pi')} label="PI" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="gid" {...f('gid')} label="GID" sx={{ maxWidth: 100 }} />,
+          <TextField key="gid" {...f('gid')} label="GID" sx={{ maxWidth: 110 }} />,
           <TextField key="propid" {...f('propid')} label="PropID" sx={{ maxWidth: 130 }} />,
         ])}
         {row([
-          <TextField key="ao1" {...f('ao1')} label="AO1" sx={{ maxWidth: 100 }} />,
-          <TextField key="ao2" {...f('ao2')} label="AO2" sx={{ maxWidth: 100 }} />,
+          <Box key="ao1">
+            <Typography variant="caption" color="text.secondary">AO1</Typography>
+            {sel('ao1', PROG_AO_OPTIONS)}
+          </Box>,
+          <Box key="ao2">
+            <Typography variant="caption" color="text.secondary">AO2</Typography>
+            {sel('ao2', PROG_AO_OPTIONS)}
+          </Box>,
           <TextField key="slotStart" {...f('slotStart')} label="Slot Start HST (HH:MM)" sx={{ maxWidth: 180 }} />,
           <TextField key="slotEnd" {...f('slotEnd')} label="Slot End HST (HH:MM)" sx={{ maxWidth: 180 }} />,
         ])}
         <Divider sx={{ my: 1 }} />
-        {row([
-          <TextField key="obs1" {...f('obs1')} label="Observer 1" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="obs1loc" {...f('obs1loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-          <TextField key="obs2" {...f('obs2')} label="Observer 2" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="obs2loc" {...f('obs2loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-        ])}
-        {row([
-          <TextField key="obs3" {...f('obs3')} label="Observer 3" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="obs3loc" {...f('obs3loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-          <TextField key="obs4" {...f('obs4')} label="Observer 4" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="obs4loc" {...f('obs4loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-        ])}
-        {row([
-          <TextField key="ss" {...f('ss')} label="SA 1" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="ssloc" {...f('ssloc')} label="Loc" sx={{ maxWidth: 80 }} />,
-          <TextField key="ss2" {...f('ss2')} label="SA 2" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="ss2loc" {...f('ss2loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-        ])}
-        {row([
-          <TextField key="others1" {...f('others1')} label="Others 1" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="others1loc" {...f('others1loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-          <TextField key="others2" {...f('others2')} label="Others 2" sx={{ flex: 1, minWidth: 140 }} />,
-          <TextField key="others2loc" {...f('others2loc')} label="Loc" sx={{ maxWidth: 80 }} />,
-        ])}
-        <TextField {...f('notes')} label="Notes" multiline minRows={2} fullWidth sx={{ mb: 1 }} />
+        {[
+          ['obs1','obs1loc','Observer 1'],['obs2','obs2loc','Observer 2'],
+          ['obs3','obs3loc','Observer 3'],['obs4','obs4loc','Observer 4'],
+          ['ss','ssloc','SA 1'],['ss2','ss2loc','SA 2'],
+          ['others1','others1loc','Others 1'],['others2','others2loc','Others 2'],
+        ].reduce((rows, item, i) => {
+          if (i % 2 === 0) rows.push([item]);
+          else rows[rows.length - 1].push(item);
+          return rows;
+        }, []).map((pair, ri) => (
+          row(pair.flatMap(([nameKey, locKey, label]) => [
+            <TextField key={nameKey} {...f(nameKey)} label={label} sx={{ flex: 1, minWidth: 140 }} />,
+            <Box key={locKey}>
+              <Typography variant="caption" color="text.secondary">Loc</Typography>
+              {sel(locKey, PROG_LOC_OPTIONS)}
+            </Box>,
+          ]))
+        ))}
+        <TextField {...f('notes')} label="Notes" multiline minRows={2} fullWidth sx={{ mb: 1, mt: 0.5 }} />
         <TextField {...f('comment_text')} label="Comment" fullWidth />
       </DialogContent>
       <DialogActions sx={{ px: 2, py: 1.5 }}>
@@ -711,9 +766,9 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
 
   const [viewTab, setViewTab] = useState('summary');
 
-  // Editor state
+  // Editor state — createdBy is injected at open-time (see beginCreate)
   const EMPTY_EDITOR = { itemId: null, crewTab: 'TO', title: '', body: '', itemType: 'Comment',
-    status: 'Completed', subsystem: 'None', itemTime: '', downtimeMinutes: '', createdBy: '',
+    status: 'Completed', subsystem: '', itemTime: '', downtimeMinutes: '', createdBy: '',
     summitAccess: 'Choose', historyText: '', commentText: '', workPlanId: '' };
   const [editor, setEditor] = useState(EMPTY_EDITOR);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -774,6 +829,10 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
 
   // Email sending
   const [emailSending, setEmailSending] = useState(null); // 'to'|'dc'|'smoka'|null
+  const [emailPreview, setEmailPreview] = useState(null); // { type, body } | null
+  const [emailPreviewLoading, setEmailPreviewLoading] = useState(false);
+  const [opalPrograms, setOpalPrograms] = useState([]);
+  const [opalProgramsLoading, setOpalProgramsLoading] = useState(false);
 
   const { user } = useAuth();
 
@@ -830,8 +889,19 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
     if (routeDate) return;
     const days = monthPayload?.days || [];
     if (!days.length) return;
-    const last = parseDate(days[days.length - 1].log_date);
-    if (!selectedDate || !daysWithLog.has(selectedDate)) loadDay(last);
+    const target = pickDefaultLogDate(days);
+    if (!target) return;
+    if (!selectedDate || !daysWithLog.has(selectedDate)) loadDay(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthPayload, routeDate]);
+
+  // When URL is "today" but the night log is still empty, open the latest day that has entries.
+  useEffect(() => {
+    if (!routeDate || routeDate !== todayHST() || !monthPayload?.days?.length) return;
+    const todayRow = monthPayload.days.find((d) => parseDate(d.log_date) === routeDate);
+    if ((todayRow?.entry_count || 0) > 0) return;
+    const fallback = pickDefaultLogDate(monthPayload.days);
+    if (fallback && fallback !== routeDate) loadDay(fallback);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthPayload, routeDate]);
 
@@ -840,11 +910,29 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
     setDayLoading(true); setDayError(null); setDayData(null);
     setEditorOpen(false); setEditorCard(null); setEditor(EMPTY_EDITOR); setEditingHeader(false);
     setProgramEditing(null); setWpEditing(null);
+    setOpalPrograms([]);
     try {
-      setDayData(await summitAPI.getDay(logDate));
+      const payload = await summitAPI.getDay(logDate);
+      setDayData({
+        ...payload,
+        crew_assignments: payload.crew_assignments || [],
+        programs: payload.programs || [],
+        work_plans: payload.work_plans || [],
+        log_items: payload.log_items || [],
+      });
+      // Fetch OPAL scheduled programs from legacy clients.alloc in background
+      setOpalProgramsLoading(true);
+      summitAPI.getOpalPrograms(logDate)
+        .then((res) => setOpalPrograms(res || []))
+        .catch(() => setOpalPrograms([]))
+        .finally(() => setOpalProgramsLoading(false));
     } catch (e) {
       if (e.response?.status === 404) setDayError(`No summit log for ${logDate}`);
-      else { const msg = e.response?.data?.detail || e.message; setDayError(msg); notify(msg); }
+      else {
+        const msg = formatApiError(e.response?.data?.detail) || e.message;
+        setDayError(msg);
+        notify(msg);
+      }
     } finally { setDayLoading(false); }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -872,6 +960,8 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
   };
 
   const handleViewTabChange = (_, v) => {
+    // Update state immediately for instant visual feedback, then sync URL.
+    // The useEffect below guards against double-update by checking prev value.
     setViewTab(v);
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -890,9 +980,11 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
   };
 
   useEffect(() => {
+    // Sync URL → state (for deep links / browser back-forward).
+    // Guard against no-op updates to prevent the double-render glitch on tab clicks.
     const v = searchParams.get('view');
-    if (v && SUMMIT_VIEW_TABS.includes(v)) setViewTab(v);
-    else if (!v) setViewTab('summary');
+    const target = (v && SUMMIT_VIEW_TABS.includes(v)) ? v : 'summary';
+    setViewTab((prev) => (prev === target ? prev : target));
   }, [searchParams]);
 
   useEffect(() => {
@@ -1023,8 +1115,8 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
 
   // ── Log item CRUD ────────────────────────────────────────────────────────
   const beginCreate = (crewTab = 'TO') => {
-    setEditor({ ...EMPTY_EDITOR, crewTab, itemTime: nowHSThmm() });
-    setEditorCard(crewTab);   // remember which card opened the editor
+    setEditor({ ...EMPTY_EDITOR, crewTab, itemTime: nowHSThmm(), createdBy: user?.username || '' });
+    setEditorCard(crewTab);
     setEditorOpen(true);
   };
   const beginEdit = (item) => {
@@ -1033,7 +1125,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
       itemId: item.id, crewTab: item.crew_tab || 'ALL',
       title: item.title || '', body: item.body || '',
       itemType: item.item_type || 'Comment', status: item.status || 'Completed',
-      subsystem: item.subsystem || 'None',
+      subsystem: item.subsystem || '',
       itemTime: item.item_time ? formatTimeHST(item.item_time) : '',
       downtimeMinutes: item.downtime_minutes != null ? String(item.downtime_minutes) : '',
       createdBy: item.created_by || '',
@@ -1107,7 +1199,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
         time_in: crewForm.time_in ? toUtcIso(selectedDate, crewForm.time_in) : null,
         time_out: crewForm.time_out ? toUtcIso(selectedDate, crewForm.time_out) : null,
       };
-      if (crewForm.id) { await summitAPI.updateCrew(crewForm.id, payload); notify('Crew updated', 'success'); }
+      if (crewForm.id) { await summitAPI.updateCrew(crewForm.id, selectedDate, payload); notify('Crew updated', 'success'); }
       else { await summitAPI.createCrew(selectedDate, payload); notify('Crew added', 'success'); }
       setCrewDialogOpen(false);
       await loadDay(selectedDate);
@@ -1116,7 +1208,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
   };
   const deleteCrew = async (id) => {
     if (!window.confirm('Remove this crew member?')) return;
-    try { await summitAPI.deleteCrew(id); notify('Crew removed', 'success'); await loadDay(selectedDate); }
+    try { await summitAPI.deleteCrew(id, selectedDate); notify('Crew removed', 'success'); await loadDay(selectedDate); }
     catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to delete crew'); }
   };
 
@@ -1142,9 +1234,27 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
 
   // ── Program CRUD ──────────────────────────────────────────────────────────
   const openAddProgram = () => { setProgramEditing(null); setProgramDialogOpen(true); };
+
+  // Pre-fill the Add Program dialog from an OPAL Programs row (clients.alloc)
+  const copyOpalProgram = (op) => {
+    setProgramEditing({
+      instr: op.instr || 'Choose', alloc: 'Choose', pi: op.pi || '',
+      ao1: '', ao2: '', gid: op.gid || '', propid: op.propid || '',
+      slotStart: '', slotEnd: '',
+      // Observers: remote goes into obs1, on-site into obs2
+      obs1: op.remote || '', obs1loc: op.remote ? 'Remote' : '',
+      obs2: op.observers || '', obs2loc: op.observers ? 'Summit' : '',
+      obs3: '', obs3loc: '', obs4: '', obs4loc: '',
+      // Staff astronomers
+      ss: op.staff || '', ssloc: '', ss2: '', ss2loc: '',
+      others1: '', others1loc: '', others2: '', others2loc: '',
+      notes: '', comment_text: op.comment || '',
+    });
+    setProgramDialogOpen(true);
+  };
   const openEditProgram = (p) => {
     setProgramEditing({
-      id: p.id, instr: p.instr || '', alloc: p.alloc || '', pi: p.pi || '',
+      id: p.id, instr: p.instr || 'Choose', alloc: p.alloc || 'Choose', pi: p.pi || '',
       ao1: p.ao1 || '', ao2: p.ao2 || '', gid: p.gid || '', propid: p.propid || '',
       slotStart: p.slot_start ? formatTimeHST(p.slot_start) : '',
       slotEnd: p.slot_end ? formatTimeHST(p.slot_end) : '',
@@ -1295,6 +1405,17 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
     finally { setEmailSending(null); }
   };
 
+  const viewEmailPreview = async (emailType) => {
+    if (!selectedDate) return;
+    setEmailPreviewLoading(true);
+    setEmailPreview(null);
+    try {
+      const res = await summitAPI.previewEmail(selectedDate, emailType);
+      setEmailPreview({ type: emailType, body: res.body });
+    } catch (e) { notify(e.response?.data?.detail || e.message || 'Failed to load preview'); }
+    finally { setEmailPreviewLoading(false); }
+  };
+
   // ── Search ────────────────────────────────────────────────────────────────
   const runSearch = async (offsetOverride = 0) => {
     const q = searchQ.trim();
@@ -1336,7 +1457,28 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
   const dcRows = useMemo(() => (dayData?.log_items || []).filter(i => i.crew_tab === 'DC'), [dayData]);
   const wpRows = useMemo(() => (dayData?.log_items || []).filter(i => i.crew_tab === 'WP'), [dayData]);
   const troubleRows = useMemo(() => (dayData?.log_items || []).filter(i => (i.item_type || '').toLowerCase() === 'trouble'), [dayData]);
-  const totalDowntime = useMemo(() => (dayData?.log_items || []).reduce((s, i) => s + (i.downtime_minutes || 0), 0), [dayData]);
+  const dayIsEmpty = useMemo(() => {
+    if (!dayData) return false;
+    return (
+      (dayData.entry_count ?? dayData.log_items?.length ?? 0) === 0
+      && (dayData.crew_assignments || []).length === 0
+      && (dayData.programs || []).length === 0
+    );
+  }, [dayData]);
+
+  const renderEmptyDayHint = () => (
+    <Alert severity="info" sx={{ m: 2 }}>
+      No log entries or crew recorded for {selectedDate} yet.
+      {(monthPayload?.days || []).some((d) => (d.entry_count || 0) > 0) && (
+        <> Select a highlighted date on the calendar to view historical summit logs, or add crew and entries below.</>
+      )}
+    </Alert>
+  );
+
+  const totalDowntime = useMemo(
+    () => (dayData?.log_items || []).reduce((s, i) => s + (Number(i.downtime_minutes) || 0), 0),
+    [dayData],
+  );
 
   const openFatsFromItem = useCallback((item, logDate) => {
     if (onCreateFatsFromSummit) onCreateFatsFromSummit({ item, logDate });
@@ -1446,23 +1588,24 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                 const logDate = fmtDate(year, month, cell.day);
                 const has = daysWithLog.has(logDate);
                 const stats = dayStatsMap[logDate];
+                const hasEntries = has && (stats?.entry_count || 0) > 0;
                 const isSel = selectedDate === logDate;
-                const hasDowntime = has && stats?.total_downtime > 0;
+                const hasDowntime = hasEntries && stats?.total_downtime > 0;
                 return (
                   <Tooltip key={cell.key}
-                    title={has ? `${stats?.entry_count || 0} entries · ${stats?.total_downtime || 0} min downtime` : 'No log'}
+                    title={hasEntries ? `${stats?.entry_count || 0} entries · ${stats?.total_downtime || 0} min downtime` : has ? 'Day record (no entries yet)' : 'No log'}
                     placement="top" arrow>
                     <Box sx={{ textAlign: 'center' }}>
                       <Button fullWidth size="small"
                         onClick={() => loadDay(logDate)}
                         sx={{
                           minWidth: 0, py: 0.5, flexDirection: 'column', lineHeight: 1.1, fontSize: '0.8rem',
-                          borderRadius: 1.5, fontWeight: isSel ? 700 : has ? 600 : 400,
+                          borderRadius: 1.5, fontWeight: isSel ? 700 : hasEntries ? 600 : has ? 500 : 400,
                           background: isSel
                             ? 'linear-gradient(135deg, #00695c, #00897b)'
-                            : has ? 'rgba(0,105,92,0.08)' : 'transparent',
-                          color: isSel ? '#fff' : has ? '#00695c' : 'text.secondary',
-                          border: has && !isSel ? '1px solid #00897b55' : isSel ? 'none' : '1px solid transparent',
+                            : hasEntries ? 'rgba(0,105,92,0.08)' : has ? 'rgba(0,105,92,0.03)' : 'transparent',
+                          color: isSel ? '#fff' : hasEntries ? '#00695c' : has ? '#546e7a' : 'text.secondary',
+                          border: hasEntries && !isSel ? '1px solid #00897b55' : isSel ? 'none' : '1px solid transparent',
                           transition: 'all 0.15s',
                           '&:hover': { background: isSel ? 'linear-gradient(135deg,#00796b,#00897b)' : 'rgba(0,105,92,0.14)', transform: 'scale(1.06)' },
                         }}>
@@ -1693,11 +1836,14 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
           {/* Loading / error */}
           {dayLoading && <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>}
           {dayError && !dayLoading && <Alert severity="warning" sx={{ m: 2 }}>{dayError}</Alert>}
+          {dayIsEmpty && !dayLoading && !dayError && renderEmptyDayHint()}
 
           {!dayLoading && dayData && (
             <Box sx={{ px: 0 }}>
               <Tabs value={viewTab} onChange={handleViewTabChange} variant="scrollable" scrollButtons="auto"
+                TabScrollButtonProps={{ sx: { opacity: 1 } }}
                 sx={{ borderBottom: '1px solid', borderColor: 'divider', px: 1,
+                  minHeight: 44,
                   '& .MuiTab-root': { fontWeight: 600, fontSize: '0.82rem', minHeight: 44, textTransform: 'none' },
                   '& .Mui-selected': { color: '#00695c' },
                   '& .MuiTabs-indicator': { backgroundColor: '#00695c', height: 3, borderRadius: '3px 3px 0 0' } }}>
@@ -1709,16 +1855,19 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                 <Tab value="programs" label="Programs" />
                 <Tab value="trouble" label="Trouble" />
               </Tabs>
-              <Box sx={{ p: 2 }}>
+              <Box sx={{ p: 2, minHeight: 400 }}>
 
               {/* ── Summary Tab ── */}
-              {viewTab === 'summary' && (
+              {viewTab === 'summary' && (() => {
+                const troubleItems = (dayData.log_items || []).filter(i => i.item_type === 'Trouble');
+                const totalDowntime = troubleItems.reduce((s, i) => s + (i.downtime_minutes || 0), 0);
+                return (
                 <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '3fr 2fr' }, gap: 2 }}>
                   <Box>
-                    <SectionCard title={`All Log Entries (${dayData.log_items.length})`} accent={SUMMIT_GRADIENT}>
-                      {dayData.log_items.length === 0
+                    <SectionCard title={`All Log Entries (${(dayData.log_items || []).length})`} accent={SUMMIT_GRADIENT}>
+                      {(dayData.log_items || []).length === 0
                         ? <Typography variant="body2" color="text.secondary">No entries yet.</Typography>
-                        : dayData.log_items.map((item) => (
+                        : (dayData.log_items || []).map((item) => (
                           <LogItemRow
                             key={item.id}
                             item={item}
@@ -1733,6 +1882,87 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                     </SectionCard>
                   </Box>
                   <Stack spacing={2}>
+                    {/* Trouble summary */}
+                    <SectionCard
+                      title={`⚠ Trouble Summary${totalDowntime > 0 ? ` — ${totalDowntime} min downtime` : ''}`}
+                      accent="linear-gradient(90deg,#b71c1c,#c62828)"
+                    >
+                      {troubleItems.length === 0
+                        ? <Typography variant="body2" color="text.secondary">No trouble entries.</Typography>
+                        : (<>
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>Time</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>Subsystem</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>Title</TableCell>
+                                  <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>DT(m)</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {troubleItems.map(it => (
+                                  <TableRow key={it.id} sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                                    <TableCell sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap', py: 0.5 }}>
+                                      {formatTimeHST(it.item_time)}
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                                      {it.subsystem || '—'}
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, maxWidth: 200 }}>
+                                      <Typography variant="inherit" noWrap title={it.title}>{it.title || '—'}</Typography>
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                                      {it.downtime_minutes > 0 ? it.downtime_minutes : '—'}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                          <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'error.dark', fontWeight: 700 }}>
+                            Total downtime: {totalDowntime} min
+                          </Typography>
+                        </>)
+                      }
+                    </SectionCard>
+                    {/* Observation Programs summary */}
+                    <SectionCard title={`🔭 Observation Programs (${(dayData.programs || []).length})`}
+                      accent="linear-gradient(90deg,#00695c,#00897b)">
+                      {(dayData.programs || []).length === 0
+                        ? <Typography variant="body2" color="text.secondary">No programs scheduled.</Typography>
+                        : (
+                          <TableContainer>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  {['Seq','Program','Instr','Alloc','PI','Time'].map(h => (
+                                    <TableCell key={h} sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>{h}</TableCell>
+                                  ))}
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {(dayData.programs || []).map(p => (
+                                  <TableRow key={p.id} sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>{p.sort_order + 1}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, fontWeight: 600 }}>{p.program_code || p.gid || '—'}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>{p.instr || '—'}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>{p.alloc || '—'}</TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                                      <Typography variant="inherit" noWrap title={p.pi} sx={{ maxWidth: 80 }}>{p.pi || '—'}</Typography>
+                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, whiteSpace: 'nowrap' }}>
+                                      {formatTimeHST(p.slot_start)}
+                                      {p.slot_end ? ` – ${formatTimeHST(p.slot_end)}` : ''}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )
+                      }
+                    </SectionCard>
                     {/* Crew summary */}
                     <SectionCard title="👥 Crew" accent="linear-gradient(90deg,#1565c0,#1976d2)">
                       <TableContainer><Table size="small">
@@ -1780,27 +2010,43 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                     </SectionCard>
                     {/* Email status — always shown */}
                     <SectionCard title="✉ Email Delivery" accent="linear-gradient(90deg,#4527a0,#5e35b1)">
-                      {/* Send buttons */}
-                      <Stack direction="row" spacing={1} sx={{ mb: 1.5 }} flexWrap="wrap" useFlexGap>
-                        {[
-                          { type: 'to',    label: 'Night Log (TO)',  color: '#1565c0' },
-                          { type: 'dc',    label: 'Day Crew (DC)',   color: '#e65100' },
-                          { type: 'smoka', label: 'SMOKA Archive',   color: '#1b5e20' },
-                        ].map(({ type, label, color }) => (
+                      {/* Send / View buttons */}
+                      {[
+                        { type: 'to',    label: 'Night Log (TO)',  color: '#1565c0' },
+                        { type: 'dc',    label: 'Day Crew (DC)',   color: '#e65100' },
+                        { type: 'smoka', label: 'SMOKA Archive',   color: '#1b5e20' },
+                      ].map(({ type, label, color }) => (
+                        <Stack key={type} direction="row" spacing={0.75} sx={{ mb: 0.75 }} alignItems="center">
                           <Button
-                            key={type}
                             size="small"
                             variant="outlined"
                             startIcon={emailSending === type ? <CircularProgress size={14} /> : <EmailIcon fontSize="small" />}
                             disabled={!!emailSending}
                             onClick={() => sendEmail(type)}
-                            sx={{ borderRadius: 2, fontSize: '0.72rem', borderColor: color, color,
+                            sx={{ borderRadius: 2, fontSize: '0.72rem', borderColor: color, color, minWidth: 140,
                               '&:hover': { bgcolor: `${color}12` } }}
                           >
                             {emailSending === type ? 'Sending…' : `Send ${label}`}
                           </Button>
-                        ))}
-                      </Stack>
+                          <Tooltip title={`Preview ${label} before sending`}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={emailPreviewLoading}
+                              startIcon={<VisibilityIcon fontSize="small" />}
+                              onClick={() => viewEmailPreview(type)}
+                              sx={{
+                                fontSize: '0.72rem', borderRadius: 2,
+                                borderColor: '#7b1fa2', color: '#7b1fa2',
+                                '&:hover': { bgcolor: '#7b1fa210' },
+                              }}
+                            >
+                              {emailPreviewLoading ? 'Loading…' : 'Preview'}
+                            </Button>
+                          </Tooltip>
+                        </Stack>
+                      ))}
+                      <Box sx={{ mb: 1 }} />
                       {!dayData.email_delivery ? (
                         <Typography variant="body2" color="text.secondary">
                           No email delivery record for this day yet.
@@ -1832,7 +2078,8 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                     </SectionCard>
                   </Stack>
                 </Box>
-              )}
+                );
+              })()}
 
               {/* ── TO / IO Tab — combined chronological view ── */}
               {viewTab === 'toio' && (() => {
@@ -1932,7 +2179,7 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                               <Stack direction="row" alignItems="center" justifyContent="space-between">
                                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                                   <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#6a1b9a' }}>
-                                    {wp.comptitle || '(Untitled work plan)'}
+                                    {wp.comptitle || wp.plan_text || wp.contact1 || wp.requestor || `Work plan #${wp.id}`}
                                   </Typography>
                                   {(wp.window_start || wp.window_end) && (
                                     <Chip size="small" label={`${formatTimeHST(wp.window_start)} – ${formatTimeHST(wp.window_end)} HST`}
@@ -2180,6 +2427,71 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
                         </Paper>
                       ))
                   }
+
+                  {/* ── OPAL Programs from Legacy DB (clients.alloc) ── */}
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#e65100' }}>
+                    📋 OPAL Programs for {selectedDate || '—'} — Legacy Schedule
+                  </Typography>
+                  {opalProgramsLoading && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="body2" color="text.secondary">Loading from legacy DB…</Typography>
+                    </Box>
+                  )}
+                  {!opalProgramsLoading && opalPrograms.length === 0 && (
+                    <Typography variant="body2" color="text.secondary">
+                      No programs found in the legacy schedule for this date.
+                    </Typography>
+                  )}
+                  {!opalProgramsLoading && opalPrograms.length > 0 && (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            {['GID','PropID','Instr','PI','Observers','Remote','Staff',''].map((h) => (
+                              <TableCell key={h} sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5 }}>{h}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {opalPrograms.map((op) => (
+                            <TableRow key={op.alloc_id} sx={{ '&:last-child td': { borderBottom: 0 }, '&:hover': { bgcolor: '#fff3e0' } }}>
+                              <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, py: 0.5 }}>{op.gid || '—'}</TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>{op.propid || '—'}</TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>
+                                {op.instr ? <Chip size="small" label={op.instr} color="primary" sx={{ fontSize: '0.68rem', height: 20 }} /> : '—'}
+                              </TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>{op.pi || '—'}</TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5, maxWidth: 140 }}>
+                                <Typography variant="inherit" noWrap title={op.observers}>{op.observers || '—'}</Typography>
+                              </TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5, maxWidth: 120 }}>
+                                <Typography variant="inherit" noWrap title={op.remote}>{op.remote || '—'}</Typography>
+                              </TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem', py: 0.5, maxWidth: 140 }}>
+                                <Typography variant="inherit" noWrap title={op.staff}>{op.staff || '—'}</Typography>
+                              </TableCell>
+                              <TableCell sx={{ py: 0.5 }}>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  onClick={() => copyOpalProgram(op)}
+                                  sx={{
+                                    fontSize: '0.68rem', py: 0.25, px: 1, borderRadius: 1.5,
+                                    bgcolor: '#e65100', '&:hover': { bgcolor: '#bf360c' },
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  Copy-Program
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
                 </SectionCard>
               )}
 
@@ -2540,6 +2852,43 @@ export default function SummitLog({ onError, onCreateFatsFromSummit, routeDate, 
         </DialogContent>
         <DialogActions sx={{ px: 2, py: 1.25 }}>
           <Button onClick={() => setCopyWPOpen(false)} startIcon={<CancelIcon />} sx={{ borderRadius: 2 }}>Cancel</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Email Preview Dialog ── */}
+      <Dialog open={!!emailPreview} onClose={() => setEmailPreview(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          {emailPreview?.type === 'to' && '📧 Night Log (TO) — Email Preview'}
+          {emailPreview?.type === 'dc' && '📧 Day Crew (DC) — Email Preview'}
+          {emailPreview?.type === 'smoka' && '📧 SMOKA Archive — Email Preview'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box
+            component="pre"
+            sx={{
+              fontFamily: 'monospace', fontSize: '0.82rem', whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word', m: 0, p: 0, lineHeight: 1.6,
+            }}
+          >
+            {emailPreview?.body || ''}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, py: 1.25 }}>
+          <Button
+            size="small"
+            onClick={() => {
+              if (emailPreview?.body) {
+                navigator.clipboard.writeText(emailPreview.body);
+              }
+            }}
+            startIcon={<ContentCopyIcon />}
+            sx={{ borderRadius: 2 }}
+          >
+            Copy to Clipboard
+          </Button>
+          <Button onClick={() => setEmailPreview(null)} startIcon={<CancelIcon />} sx={{ borderRadius: 2 }}>
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

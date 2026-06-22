@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import List, Optional
-from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -44,7 +43,7 @@ class SummitDayUpdate(BaseModel):
 
 
 class SummitMonthlyDayResponse(BaseModel):
-    id: UUID
+    id: int
     log_date: date
     day_label: Optional[str] = None
     history_text: Optional[str] = None
@@ -91,8 +90,8 @@ class CrewAssignmentUpdate(BaseModel):
 
 
 class CrewAssignmentResponse(BaseModel):
-    id: UUID
-    summit_day_id: UUID
+    id: str
+    summit_day_id: int
     role: str
     member_name: Optional[str] = None
     location: Optional[str] = None
@@ -116,7 +115,7 @@ class WeatherSnapshotUpdate(BaseModel):
 
 
 class WeatherSnapshotResponse(BaseModel):
-    id: UUID
+    id: int
     sky: Optional[str] = None
     seeing: Optional[str] = None
     temp_raw: Optional[str] = None
@@ -168,7 +167,7 @@ class ObservationProgramUpdate(ObservationProgramCreate):
 
 
 class ObservationProgramResponse(BaseModel):
-    id: UUID
+    id: int
     legacy_prog_id: Optional[int] = None
     sort_order: int
     program_code: Optional[str] = None
@@ -262,8 +261,8 @@ class WorkPlanUpdate(WorkPlanCreate):
 
 
 class WorkPlanResponse(BaseModel):
-    id: UUID
-    summit_day_id: UUID
+    id: int
+    summit_day_id: int
     requestor: Optional[str] = None
     wp_status: Optional[str] = None
     wp_type: Optional[str] = None
@@ -323,7 +322,7 @@ class LogItemCreate(BaseModel):
     created_by: Optional[str] = Field(None, max_length=20)
     history_text: Optional[str] = None
     comment_text: Optional[str] = None
-    work_plan_id: Optional[UUID] = None
+    work_plan_id: Optional[int] = None
     summit_access: Optional[str] = Field(None, max_length=20)
 
     @field_validator("crew_tab")
@@ -344,7 +343,7 @@ class LogItemUpdate(BaseModel):
     created_by: Optional[str] = Field(None, max_length=20)
     history_text: Optional[str] = None
     comment_text: Optional[str] = None
-    work_plan_id: Optional[UUID] = None
+    work_plan_id: Optional[int] = None
     summit_access: Optional[str] = Field(None, max_length=20)
 
     @field_validator("crew_tab")
@@ -356,9 +355,9 @@ class LogItemUpdate(BaseModel):
 
 
 class LogItemResponse(BaseModel):
-    id: UUID
-    summit_day_id: UUID
-    work_plan_id: Optional[UUID] = None
+    id: int
+    summit_day_id: int
+    work_plan_id: Optional[int] = None
     legacy_item_id: Optional[int] = None
     legacy_old_item_id: Optional[int] = None
     crew_tab: str
@@ -383,7 +382,7 @@ class LogItemResponse(BaseModel):
 
 # ── Email Delivery ──────────────────────────────────────────────────────────────
 class EmailDeliveryResponse(BaseModel):
-    id: UUID
+    id: int
     mailed: Optional[str] = None
     mailtime: Optional[datetime] = None
     mailsmoka: Optional[str] = None
@@ -401,7 +400,7 @@ class EmailDeliveryResponse(BaseModel):
 
 # ── Composite / Response wrappers ───────────────────────────────────────────────
 class SummitDailyViewResponse(BaseModel):
-    id: UUID
+    id: int
     log_date: date
     day_label: Optional[str] = None
     history_text: Optional[str] = None

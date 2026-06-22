@@ -97,7 +97,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "OPAL Unified System",
-        "databases": ["MariaDB", "Postgres"]
+        "databases": ["MariaDB", "sumlogs"]
     }
 
 # Database health check endpoint
@@ -110,7 +110,7 @@ async def health_check_db():
     from sqlalchemy import text
     db_status = {
         "mariadb": "disconnected",
-        "postgres": "disconnected",
+        "sumlogs": "disconnected",
     }
     try:
         async with mariadb_engine.connect() as conn:
@@ -118,10 +118,11 @@ async def health_check_db():
             result.fetchone()
         db_status["mariadb"] = "connected"
 
-        async with summit_engine.connect() as conn:
-            result = await conn.execute(text("SELECT 1"))
-            result.fetchone()
-        db_status["postgres"] = "connected"
+        if summit_engine is not None:
+            async with summit_engine.connect() as conn:
+                result = await conn.execute(text("SELECT 1"))
+                result.fetchone()
+            db_status["sumlogs"] = "connected"
 
         return {
             "status": "healthy",

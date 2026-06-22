@@ -1,30 +1,22 @@
 """
-Business logic for Summit Logging — full CRUD for all entities.
+Summit Logging business logic — legacy MariaDB `sumlogs` (days, items, progs).
 """
 from __future__ import annotations
 
 import asyncio
 import re
 import smtplib
-import uuid
 from datetime import date, datetime, timezone
 from email.mime.text import MIMEText
-from typing import Any, List, Optional, Tuple
-from uuid import UUID
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import (
-    CrewAssignment,
-    EmailDelivery,
-    LogItem,
-    ObservationProgram,
-    SummitDay,
-    WeatherSnapshot,
-    WorkPlan,
-)
+from app.models.summit_legacy import Day, Item, ItemReq, Prog
+from app.services import summit_legacy_mapper as mapper
+from app.services.summit_legacy_mapper import _parse_int
 
 
 def _strip_nul(v: Optional[str]) -> Optional[str]:
@@ -44,643 +36,508 @@ def _parse_float(s: Any) -> Optional[float]:
 
 class SummitService:
 
-    # ── Summit Days ─────────────────────────────────────────────────────────────
+    async def _get_day_row(self, db: AsyncSession, log_date: date) -> Day:
+        row = (await db.execute(select(Day).where(Day.date == log_date))).scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Summit day not found for {log_date}")
+        return row
 
-    async def get_monthly_days(
-        self, db: AsyncSession, year: int, month: int
-    ) -> List[dict]:
-        """Return day summaries for a month, including entry count and downtime totals."""
-        start_date = date(year, month, 1)
-        end_date = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    async def _get_day_by_idno(self, db: AsyncSession, dayidno: int) -> Day:
+        row = (await db.execute(select(Day).where(Day.idno == dayidno))).scalar_one_or_none()
+        if not row:
+            raise HTTPException(status_code=404, detail="Summit day not found")
+        return row
 
-        days_stmt = (
-            select(SummitDay)
-            .where(SummitDay.log_date >= start_date, SummitDay.log_date < end_date)
-            .order_by(SummitDay.log_date.asc())
+    async def _req_codes_for_wp(self, db: AsyncSession, plan_idno: int) -> List[str]:
+        rows = (await db.execute(select(ItemReq.code).where(ItemReq.planidno == plan_idno))).all()
+        return [r[0] for r in rows if r[0]]
+
+    async def _req_codes_batch(self, db: AsyncSession, plan_idnos: List[int]) -> Dict[int, List[str]]:
+        """Fetch itemreqs for multiple WPs in a single query (avoids N+1)."""
+        if not plan_idnos:
+            return {}
+        rows = (await db.execute(
+            select(ItemReq.planidno, ItemReq.code).where(ItemReq.planidno.in_(plan_idnos))
+        )).all()
+        result: Dict[int, List[str]] = {pid: [] for pid in plan_idnos}
+        for pid, code in rows:
+            if code:
+                result[pid].append(code)
+        return result
+
+    async def _set_req_codes(self, db: AsyncSession, plan_idno: int, req_flags: Optional[str], lockout_flags: Optional[str]) -> None:
+        await db.execute(delete(ItemReq).where(ItemReq.planidno == plan_idno))
+        codes: List[str] = []
+        for blob, is_lock in ((req_flags, False), (lockout_flags, True)):
+            if not blob:
+                continue
+            for part in str(blob).split(","):
+                code = part.strip()
+                if code:
+                    codes.append(code)
+        for code in codes:
+            db.add(ItemReq(planidno=plan_idno, code=code))
+
+    # ── Days ────────────────────────────────────────────────────────────────────
+
+    async def get_monthly_days(self, db: AsyncSession, year: int, month: int) -> List[dict]:
+        start = date(year, month, 1)
+        end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+        days = list(
+            (await db.execute(select(Day).where(Day.date >= start, Day.date < end).order_by(Day.date))).scalars().all()
         )
-        days = list((await db.execute(days_stmt)).scalars().all())
         if not days:
             return []
 
-        day_ids = [d.id for d in days]
-
-        counts_stmt = (
-            select(
-                LogItem.summit_day_id,
-                func.count(LogItem.id).label("entry_count"),
-                func.coalesce(func.sum(LogItem.downtime_minutes), 0).label("total_downtime"),
+        day_ids = [d.idno for d in days]
+        counts = (
+            await db.execute(
+                select(Item.dayidno, func.count(Item.idno), func.coalesce(func.sum(Item.downtime), 0))
+                .where(Item.dayidno.in_(day_ids), Item.logcrew != "WP")
+                .group_by(Item.dayidno)
             )
-            .where(LogItem.summit_day_id.in_(day_ids))
-            .group_by(LogItem.summit_day_id)
-        )
-        counts_rows = (await db.execute(counts_stmt)).all()
-        counts_map = {str(r.summit_day_id): (r.entry_count, r.total_downtime) for r in counts_rows}
+        ).all()
+        counts_map = {r[0]: (r[1], r[2]) for r in counts}
 
-        result = []
+        out = []
         for d in days:
-            ec, dt = counts_map.get(str(d.id), (0, 0))
-            result.append({"day": d, "entry_count": ec, "total_downtime": dt})
-        return result
+            ec, dt = counts_map.get(d.idno, (0, 0))
+            out.append({"day": mapper.day_to_api(d), "entry_count": ec, "total_downtime": int(dt or 0)})
+        return out
 
     async def get_yearly_days(self, db: AsyncSession, year: int) -> List[dict]:
-        """Year overview: day summaries plus first program instrument per day (legacy loglist style)."""
-        start_date = date(year, 1, 1)
-        end_date = date(year + 1, 1, 1)
-        days_stmt = (
-            select(SummitDay)
-            .where(SummitDay.log_date >= start_date, SummitDay.log_date < end_date)
-            .order_by(SummitDay.log_date.asc())
+        start = date(year, 1, 1)
+        end = date(year + 1, 1, 1)
+        days = list(
+            (await db.execute(select(Day).where(Day.date >= start, Day.date < end).order_by(Day.date))).scalars().all()
         )
-        days = list((await db.execute(days_stmt)).scalars().all())
         if not days:
             return []
 
-        day_ids = [d.id for d in days]
-
-        counts_stmt = (
-            select(
-                LogItem.summit_day_id,
-                func.count(LogItem.id).label("entry_count"),
-                func.coalesce(func.sum(LogItem.downtime_minutes), 0).label("total_downtime"),
+        day_ids = [d.idno for d in days]
+        counts = (
+            await db.execute(
+                select(Item.dayidno, func.count(Item.idno), func.coalesce(func.sum(Item.downtime), 0))
+                .where(Item.dayidno.in_(day_ids), Item.logcrew != "WP")
+                .group_by(Item.dayidno)
             )
-            .where(LogItem.summit_day_id.in_(day_ids))
-            .group_by(LogItem.summit_day_id)
-        )
-        counts_rows = (await db.execute(counts_stmt)).all()
-        counts_map = {str(r.summit_day_id): (r.entry_count, r.total_downtime) for r in counts_rows}
+        ).all()
+        counts_map = {r[0]: (r[1], r[2]) for r in counts}
 
-        prog_stmt = (
-            select(ObservationProgram.summit_day_id, ObservationProgram.instr, ObservationProgram.sort_order)
-            .where(ObservationProgram.summit_day_id.in_(day_ids))
-            .order_by(ObservationProgram.summit_day_id, ObservationProgram.sort_order.asc())
-        )
-        first_instr: dict[str, str] = {}
-        for row in (await db.execute(prog_stmt)).all():
-            sid = str(row.summit_day_id)
-            if sid not in first_instr and row.instr:
-                first_instr[sid] = row.instr.strip()
+        first_instr: Dict[int, str] = {}
+        for row in (
+            await db.execute(
+                select(Prog.dayidno, Prog.instr, Prog.seq)
+                .where(Prog.dayidno.in_(day_ids))
+                .order_by(Prog.dayidno, Prog.seq)
+            )
+        ).all():
+            if row.dayidno not in first_instr and row.instr:
+                first_instr[row.dayidno] = row.instr.strip()
 
-        result = []
+        out = []
         for d in days:
-            ec, dt = counts_map.get(str(d.id), (0, 0))
-            result.append({
-                "day": d,
+            ec, dt = counts_map.get(d.idno, (0, 0))
+            out.append({
+                "day": mapper.day_to_api(d),
                 "entry_count": ec,
-                "total_downtime": int(dt) if dt is not None else 0,
-                "first_instr": first_instr.get(str(d.id)),
+                "total_downtime": int(dt or 0),
+                "first_instr": first_instr.get(d.idno),
             })
-        return result
+        return out
 
-    async def create_summit_day(self, db: AsyncSession, log_date: date, day_label: Optional[str], history_text: Optional[str]) -> SummitDay:
-        existing = await db.execute(select(SummitDay).where(SummitDay.log_date == log_date))
-        if existing.scalar_one_or_none():
+    async def create_summit_day(self, db: AsyncSession, log_date: date, day_label: Optional[str], history_text: Optional[str]) -> dict:
+        if (await db.execute(select(Day).where(Day.date == log_date))).scalar_one_or_none():
             raise HTTPException(status_code=409, detail=f"Summit day already exists for {log_date}")
-        now = datetime.now(timezone.utc)
-        day = SummitDay(
-            id=uuid.uuid4(),
-            log_date=log_date,
-            day_label=_strip_nul(day_label),
-            history_text=_strip_nul(history_text),
-            created_at=now,
-            updated_at=now,
-        )
+        day = Day(date=log_date, day=_strip_nul(day_label), history=_strip_nul(history_text))
         db.add(day)
         await db.commit()
         await db.refresh(day)
-        return day
+        return mapper.day_to_api(day)
 
     async def get_daily_view(self, db: AsyncSession, log_date: date) -> dict:
-        day = await self._get_day_header(db, log_date)
-        crew = await self._get_crew_assignments(db, day.id)
-        weather = await self._get_weather(db, day.id)
-        programs = await self._get_programs(db, day.id)
-        work_plans = await self._get_work_plans(db, day.id)
-        log_items = await self._get_log_items(db, day.id)
-        email_delivery = await self._get_email_delivery(db, day.id)
+        day = await self._get_day_row(db, log_date)
+        items = list(
+            (await db.execute(select(Item).where(Item.dayidno == day.idno).order_by(Item.itemtime, Item.idno))).scalars().all()
+        )
+        progs = list(
+            (await db.execute(select(Prog).where(Prog.dayidno == day.idno).order_by(Prog.seq, Prog.idno))).scalars().all()
+        )
+
+        log_items = [mapper.log_item_to_api(i) for i in items if mapper.is_log_item(i)]
+        wp_items = [i for i in items if mapper.is_work_plan(i)]
+        codes_map = await self._req_codes_batch(db, [i.idno for i in wp_items])
+        work_plans = [mapper.work_plan_to_api(i, codes_map.get(i.idno, [])) for i in wp_items]
 
         entry_count = len(log_items)
-        total_downtime = sum((li.downtime_minutes or 0) for li in log_items)
+        total_downtime = sum(_parse_int(li.get("downtime_minutes")) for li in log_items)
 
         return {
-            "day": day,
-            "crew": crew,
-            "weather": weather,
-            "programs": programs,
+            "day": mapper.day_to_api(day),
+            "crew": mapper.crew_from_day(day),
+            "weather": mapper.weather_from_day(day),
+            "programs": [mapper.prog_to_api(p) for p in progs],
             "work_plans": work_plans,
             "log_items": log_items,
-            "email_delivery": email_delivery,
+            "email_delivery": mapper.email_from_day(day),
             "entry_count": entry_count,
             "total_downtime": total_downtime,
         }
 
-    async def update_summit_day(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> SummitDay:
-        day = await self._get_day_header(db, log_date)
+    async def update_summit_day(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
         if "day_label" in data:
-            day.day_label = _strip_nul(data["day_label"])
+            day.day = _strip_nul(data["day_label"])
         if "history_text" in data:
-            day.history_text = _strip_nul(data["history_text"])
-        if "zoom_meeting_id" in data:
-            day.zoom_meeting_id = _strip_nul(data["zoom_meeting_id"])
-        if "zoom_password" in data:
-            day.zoom_password = _strip_nul(data["zoom_password"])
-        if "zoom_join_url" in data:
-            day.zoom_join_url = _strip_nul(data["zoom_join_url"])
-        day.updated_at = datetime.now(timezone.utc)
+            day.history = _strip_nul(data["history_text"])
+        # Zoom fields are API-only; legacy `days` table has no zoom columns on this server.
         await db.commit()
         await db.refresh(day)
-        return day
+        return mapper.day_to_api(day)
 
-    async def get_summit_day_by_date(self, db: AsyncSession, log_date: date) -> SummitDay:
-        return await self._get_day_header(db, log_date)
+    async def get_summit_day_by_date(self, db: AsyncSession, log_date: date) -> dict:
+        return mapper.day_to_api(await self._get_day_row(db, log_date))
 
-    async def _get_day_header(self, db: AsyncSession, log_date: date) -> SummitDay:
-        result = await db.execute(select(SummitDay).where(SummitDay.log_date == log_date))
-        day = result.scalar_one_or_none()
-        if not day:
-            raise HTTPException(status_code=404, detail=f"Summit day not found for {log_date}")
-        return day
+    # ── Crew (stored on `days` row) ─────────────────────────────────────────────
 
-    # ── Crew Assignments ────────────────────────────────────────────────────────
-
-    async def _get_crew_assignments(self, db: AsyncSession, summit_day_id) -> List[CrewAssignment]:
-        stmt = (
-            select(CrewAssignment)
-            .where(CrewAssignment.summit_day_id == summit_day_id)
-            .order_by(CrewAssignment.sort_order.asc(), CrewAssignment.id.asc())
-        )
-        return list((await db.execute(stmt)).scalars().all())
-
-    async def get_crew(self, db: AsyncSession, crew_id: UUID) -> CrewAssignment:
-        row = (await db.execute(select(CrewAssignment).where(CrewAssignment.id == crew_id))).scalar_one_or_none()
-        if not row:
+    async def get_crew(self, db: AsyncSession, crew_id: str) -> dict:
+        slot = mapper.CREW_SLOT_BY_ID.get(crew_id)
+        if not slot:
             raise HTTPException(status_code=404, detail="Crew assignment not found")
-        return row
+        raise HTTPException(status_code=400, detail="Use day view to resolve crew by slot id")
 
-    async def create_crew(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> CrewAssignment:
-        day = await self._get_day_header(db, log_date)
-        if data.get("sort_order") is None:
-            mx = (await db.execute(
-                select(func.max(CrewAssignment.sort_order)).where(CrewAssignment.summit_day_id == day.id)
-            )).scalar_one()
-            sort_order = (mx or 0) + 1
-        else:
-            sort_order = int(data["sort_order"])
-
-        row = CrewAssignment(
-            id=uuid.uuid4(),
-            summit_day_id=day.id,
-            role=data["role"],
-            member_name=_strip_nul(data.get("member_name")),
-            location=_strip_nul(data.get("location")),
-            time_in=data.get("time_in"),
-            time_out=data.get("time_out"),
-            sort_order=sort_order,
-        )
-        db.add(row)
+    async def create_crew(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
+        role = data["role"].strip().upper()
+        slots = [s for s in mapper.CREW_SLOTS if s["role"] == role]
+        target = None
+        for slot in slots:
+            if not getattr(day, slot["name"], None):
+                target = slot
+                break
+        if not target:
+            raise HTTPException(status_code=409, detail=f"No empty {role} crew slot on this day")
+        setattr(day, target["name"], _strip_nul(data.get("member_name")))
+        if target["loc"] and "location" in data:
+            setattr(day, target["loc"], _strip_nul(data.get("location")))
+        if target["tin"] and "time_in" in data:
+            setattr(day, target["tin"], data.get("time_in"))
+        if target["tout"] and "time_out" in data:
+            setattr(day, target["tout"], data.get("time_out"))
         await db.commit()
-        await db.refresh(row)
-        return row
+        await db.refresh(day)
+        for c in mapper.crew_from_day(day):
+            if c["id"] == target["id"]:
+                return c
+        raise HTTPException(status_code=500, detail="Crew slot update failed")
 
-    async def update_crew(self, db: AsyncSession, crew_id: UUID, data: dict[str, Any]) -> CrewAssignment:
-        row = await self.get_crew(db, crew_id)
-        for field in ("role", "member_name", "location", "time_in", "time_out", "sort_order"):
-            if field in data and data[field] is not None:
-                val = _strip_nul(data[field]) if field in ("member_name", "location") else data[field]
-                setattr(row, field, val)
+    async def update_crew(self, db: AsyncSession, crew_id: str, data: dict[str, Any]) -> dict:
+        slot = mapper.CREW_SLOT_BY_ID.get(crew_id)
+        if not slot:
+            raise HTTPException(status_code=404, detail="Crew assignment not found")
+        dayidno = data.pop("_dayidno", None)
+        if dayidno is None:
+            raise HTTPException(status_code=400, detail="Internal: day id required")
+        day = await self._get_day_by_idno(db, dayidno)
+        if "member_name" in data:
+            setattr(day, slot["name"], _strip_nul(data["member_name"]))
+        if slot["loc"] and "location" in data:
+            setattr(day, slot["loc"], _strip_nul(data.get("location")))
+        if slot["tin"] and "time_in" in data:
+            setattr(day, slot["tin"], data.get("time_in"))
+        if slot["tout"] and "time_out" in data:
+            setattr(day, slot["tout"], data.get("time_out"))
         await db.commit()
-        await db.refresh(row)
-        return row
+        await db.refresh(day)
+        for c in mapper.crew_from_day(day):
+            if c["id"] == crew_id:
+                return c
+        return {"id": crew_id, "summit_day_id": day.idno, "role": slot["role"], "sort_order": slot["sort"]}
 
-    async def delete_crew(self, db: AsyncSession, crew_id: UUID) -> None:
-        await self.get_crew(db, crew_id)
-        await db.execute(delete(CrewAssignment).where(CrewAssignment.id == crew_id))
+    async def update_crew_by_id(self, db: AsyncSession, log_date: date, crew_id: str, data: dict[str, Any]) -> dict:
+        data = {**data, "_dayidno": (await self._get_day_row(db, log_date)).idno}
+        return await self.update_crew(db, crew_id, data)
+
+    async def delete_crew(self, db: AsyncSession, log_date: date, crew_id: str) -> None:
+        slot = mapper.CREW_SLOT_BY_ID.get(crew_id)
+        if not slot:
+            raise HTTPException(status_code=404, detail="Crew assignment not found")
+        day = await self._get_day_row(db, log_date)
+        setattr(day, slot["name"], None)
+        if slot["loc"]:
+            setattr(day, slot["loc"], None)
+        if slot["tin"]:
+            setattr(day, slot["tin"], None)
+        if slot["tout"]:
+            setattr(day, slot["tout"], None)
         await db.commit()
 
-    # ── Weather Snapshots ───────────────────────────────────────────────────────
+    # ── Weather (on `days` row) ─────────────────────────────────────────────────
 
-    async def _get_weather(self, db: AsyncSession, summit_day_id) -> Optional[WeatherSnapshot]:
-        return (await db.execute(select(WeatherSnapshot).where(WeatherSnapshot.summit_day_id == summit_day_id))).scalar_one_or_none()
-
-    async def upsert_weather(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> WeatherSnapshot:
-        day = await self._get_day_header(db, log_date)
-        snap = await self._get_weather(db, day.id)
-        if snap is None:
-            snap = WeatherSnapshot(id=uuid.uuid4(), summit_day_id=day.id)
-            db.add(snap)
-
-        for field in ("sky", "seeing", "wind", "comment_text"):
-            if field in data:
-                setattr(snap, field, _strip_nul(data[field]))
-
+    async def upsert_weather(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
+        for api_field, col in (
+            ("sky", "sky"), ("seeing", "seeing"), ("wind", "wind"),
+            ("comment_text", "comment"),
+        ):
+            if api_field in data:
+                setattr(day, col, _strip_nul(data[api_field]))
         if "temp_raw" in data:
-            snap.temp_raw = _strip_nul(data["temp_raw"])
-            snap.temp_c = _parse_float(data["temp_raw"])
+            day.temp = _strip_nul(data["temp_raw"])
         if "humidity_raw" in data:
-            snap.humidity_raw = _strip_nul(data["humidity_raw"])
-            snap.humidity_pct = _parse_float(data["humidity_raw"])
-        if "captured_at" in data:
-            snap.captured_at = data["captured_at"]
-
+            day.humid = _strip_nul(data["humidity_raw"])
         await db.commit()
-        await db.refresh(snap)
-        return snap
+        await db.refresh(day)
+        return mapper.weather_from_day(day) or {"id": day.idno}
 
-    # ── Observation Programs ────────────────────────────────────────────────────
+    # ── Programs (`progs`) ──────────────────────────────────────────────────────
 
-    async def _get_programs(self, db: AsyncSession, summit_day_id) -> List[ObservationProgram]:
-        stmt = (
-            select(ObservationProgram)
-            .where(ObservationProgram.summit_day_id == summit_day_id)
-            .order_by(ObservationProgram.sort_order.asc(), ObservationProgram.id.asc())
-        )
-        return list((await db.execute(stmt)).scalars().all())
-
-    async def get_program(self, db: AsyncSession, program_id: UUID) -> ObservationProgram:
-        row = (await db.execute(select(ObservationProgram).where(ObservationProgram.id == program_id))).scalar_one_or_none()
+    async def get_program(self, db: AsyncSession, program_id: int) -> dict:
+        row = (await db.execute(select(Prog).where(Prog.idno == program_id))).scalar_one_or_none()
         if not row:
             raise HTTPException(status_code=404, detail="Program not found")
-        return row
+        return mapper.prog_to_api(row)
 
-    def _apply_program_data(self, p: ObservationProgram, data: dict[str, Any]) -> None:
-        str_fields = (
-            "instr", "alloc", "pi", "ao1", "ao2", "gid", "propid",
-            "obs1", "obs1loc", "obs2", "obs2loc", "obs3", "obs3loc", "obs4", "obs4loc",
-            "ss", "ssloc", "ss2", "ss2loc",
-            "others1", "others1loc", "others2", "others2loc",
-            "notes", "comment_text",
-        )
-        for f in str_fields:
-            if f in data:
-                setattr(p, f, _strip_nul(data[f]))
-        for f in ("slot_start", "slot_end"):
-            if f in data:
-                setattr(p, f, data[f])
+    def _apply_program(self, prog: Prog, data: dict[str, Any]) -> None:
+        mapping = {
+            "instr": "instr", "alloc": "alloc", "pi": "pi", "ao1": "ao1", "ao2": "ao2",
+            "gid": "gid", "propid": "propid",
+            "obs1": "obs1", "obs1loc": "obs1loc", "obs2": "obs2", "obs2loc": "obs2loc",
+            "obs3": "obs3", "obs3loc": "obs3loc", "obs4": "obs4", "obs4loc": "obs4loc",
+            "ss": "ss", "ssloc": "ssloc", "ss2": "ss2", "ss2loc": "ss2loc",
+            "others1": "others1", "others1loc": "others1loc", "others2": "others2", "others2loc": "others2loc",
+            "comment_text": "comment",
+        }
+        for api_f, col in mapping.items():
+            if api_f in data:
+                setattr(prog, col, _strip_nul(data[api_f]))
+        if "slot_start" in data:
+            prog.intime = data["slot_start"]
+        if "slot_end" in data:
+            prog.outtime = data["slot_end"]
         if "sort_order" in data and data["sort_order"] is not None:
-            p.sort_order = int(data["sort_order"])
-        p.program_code = _strip_nul(p.gid or p.propid)
+            n = int(data["sort_order"])
+            prog.seq = chr(ord("A") + n) if 0 <= n < 26 else str(n)
 
-    async def create_program(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> ObservationProgram:
-        day = await self._get_day_header(db, log_date)
-        if data.get("sort_order") is None:
-            mx = (await db.execute(
-                select(func.max(ObservationProgram.sort_order)).where(ObservationProgram.summit_day_id == day.id)
-            )).scalar_one()
-            data = {**data, "sort_order": (mx or 0) + 1}
-
-        p = ObservationProgram(id=uuid.uuid4(), legacy_prog_id=None, summit_day_id=day.id, sort_order=0)
-        self._apply_program_data(p, data)
-        db.add(p)
+    async def create_program(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
+        prog = Prog(dayidno=day.idno, date=log_date, seq="A")
+        self._apply_program(prog, data)
+        db.add(prog)
         await db.commit()
-        await db.refresh(p)
-        return p
+        await db.refresh(prog)
+        return mapper.prog_to_api(prog)
 
-    async def update_program(self, db: AsyncSession, program_id: UUID, data: dict[str, Any]) -> ObservationProgram:
-        p = await self.get_program(db, program_id)
-        self._apply_program_data(p, data)
+    async def update_program(self, db: AsyncSession, program_id: int, data: dict[str, Any]) -> dict:
+        prog = (await db.execute(select(Prog).where(Prog.idno == program_id))).scalar_one_or_none()
+        if not prog:
+            raise HTTPException(status_code=404, detail="Program not found")
+        self._apply_program(prog, data)
         await db.commit()
-        await db.refresh(p)
-        return p
+        await db.refresh(prog)
+        return mapper.prog_to_api(prog)
 
-    async def delete_program(self, db: AsyncSession, program_id: UUID) -> None:
+    async def delete_program(self, db: AsyncSession, program_id: int) -> None:
         await self.get_program(db, program_id)
-        await db.execute(delete(ObservationProgram).where(ObservationProgram.id == program_id))
+        await db.execute(delete(Prog).where(Prog.idno == program_id))
         await db.commit()
 
-    # ── Work Plans ──────────────────────────────────────────────────────────────
+    # ── Work plans (items where logcrew='WP') ───────────────────────────────────
 
-    async def _get_work_plans(self, db: AsyncSession, summit_day_id) -> List[WorkPlan]:
-        stmt = (
-            select(WorkPlan)
-            .where(WorkPlan.summit_day_id == summit_day_id)
-            .order_by(WorkPlan.window_start.asc().nulls_last(), WorkPlan.id.asc())
-        )
-        return list((await db.execute(stmt)).scalars().all())
-
-    async def get_work_plan(self, db: AsyncSession, plan_id: UUID) -> WorkPlan:
-        row = (await db.execute(select(WorkPlan).where(WorkPlan.id == plan_id))).scalar_one_or_none()
+    async def get_work_plan(self, db: AsyncSession, plan_id: int) -> dict:
+        row = (await db.execute(select(Item).where(Item.idno == plan_id, Item.logcrew == "WP"))).scalar_one_or_none()
         if not row:
             raise HTTPException(status_code=404, detail="Work plan not found")
-        return row
+        codes = await self._req_codes_for_wp(db, plan_id)
+        return mapper.work_plan_to_api(row, codes)
 
-    _WP_STR_FIELDS = (
-        # Plan header
-        "requestor", "wp_status", "wp_type", "wp_subsystem",
-        "plan_text", "day_warning", "nite_warning", "teampass",
-        # Effects & location
-        "nite_effect", "day_effect",
-        "location", "location2", "location3",
-        # Assigned / crew
-        "assigned1", "assigned2", "dcassist", "notify",
-        "contact1", "contact2", "others", "otherreq",
-        # Required / lockout flags (stored as comma-separated text)
-        "req_flags", "lockout_flags",
-        # Completion
-        "comptitle", "completion_title", "comptext",
-        "requirements", "notes",
-        "intervene", "melco", "fai", "pass_text", "rpass_text",
-    )
-
-    def _apply_wp_data(self, wp: WorkPlan, data: dict[str, Any]) -> None:
-        for f in self._WP_STR_FIELDS:
-            if f in data:
-                setattr(wp, f, _strip_nul(data[f]))
-        for f in ("window_start", "window_end", "realstart", "realend"):
-            if f in data:
-                setattr(wp, f, data[f])
+    def _apply_wp(self, item: Item, data: dict[str, Any]) -> None:
+        field_map = {
+            "requestor": "contact1", "wp_status": "status", "wp_type": "type", "wp_subsystem": "subsystem",
+            "plan_text": "itemtext", "day_warning": "comment", "teampass": "pass_",
+            "window_start": "itemtime", "window_end": "endtime",
+            "realstart": "realstart", "realend": "realend",
+            "nite_effect": "niteeffect", "day_effect": "dayeffect",
+            "location": "location", "location2": "location2", "location3": "location3",
+            "assigned1": "assigned1", "assigned2": "assigned2", "dcassist": "dcassist",
+            "notify": "notify", "contact1": "contact1", "contact2": "contact2",
+            "others": "others", "otherreq": "otherreq", "comptitle": "comptitle",
+            "intervene": "intervene", "melco": "melco", "fai": "fai",
+            "pass_text": "pass_", "rpass_text": "rpass", "requirements": "otherreq",
+        }
+        for api_f, col in field_map.items():
+            if api_f in data:
+                val = _strip_nul(data[api_f]) if isinstance(data[api_f], str) else data[api_f]
+                setattr(item, col, val)
         for f in ("master", "seats", "seats2", "pseats"):
-            if f in data and data[f] is not None:
-                setattr(wp, f, int(data[f]))
-            elif f in data and data[f] is None:
-                setattr(wp, f, None)
+            if f in data:
+                setattr(item, f, data[f])
+        if "req_flags" in data or "lockout_flags" in data:
+            item._pending_req = (data.get("req_flags"), data.get("lockout_flags"))  # type: ignore[attr-defined]
 
-    async def create_work_plan(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> WorkPlan:
-        day = await self._get_day_header(db, log_date)
-        wp = WorkPlan(id=uuid.uuid4(), summit_day_id=day.id)
-        self._apply_wp_data(wp, data)
-        db.add(wp)
+    async def create_work_plan(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
+        item = Item(dayidno=day.idno, date=log_date, day=day.day, logcrew="WP", status="Planned", timestamp=datetime.now())
+        self._apply_wp(item, data)
+        pending = getattr(item, "_pending_req", (None, None))
+        db.add(item)
+        await db.flush()
+        await self._set_req_codes(db, item.idno, pending[0], pending[1])
         await db.commit()
-        await db.refresh(wp)
-        return wp
+        await db.refresh(item)
+        codes = await self._req_codes_for_wp(db, item.idno)
+        return mapper.work_plan_to_api(item, codes)
 
-    async def update_work_plan(self, db: AsyncSession, plan_id: UUID, data: dict[str, Any]) -> WorkPlan:
-        wp = await self.get_work_plan(db, plan_id)
-        self._apply_wp_data(wp, data)
+    async def update_work_plan(self, db: AsyncSession, plan_id: int, data: dict[str, Any]) -> dict:
+        item = (await db.execute(select(Item).where(Item.idno == plan_id, Item.logcrew == "WP"))).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="Work plan not found")
+        self._apply_wp(item, data)
+        pending = getattr(item, "_pending_req", None)
+        if pending is not None:
+            await self._set_req_codes(db, plan_id, pending[0], pending[1])
         await db.commit()
-        await db.refresh(wp)
-        return wp
+        await db.refresh(item)
+        return mapper.work_plan_to_api(item, await self._req_codes_for_wp(db, plan_id))
 
-    async def delete_work_plan(self, db: AsyncSession, plan_id: UUID) -> None:
+    async def delete_work_plan(self, db: AsyncSession, plan_id: int) -> None:
         await self.get_work_plan(db, plan_id)
-        await db.execute(delete(WorkPlan).where(WorkPlan.id == plan_id))
+        await db.execute(delete(ItemReq).where(ItemReq.planidno == plan_id))
+        await db.execute(delete(Item).where(Item.idno == plan_id))
         await db.commit()
 
-    # ── Log Items ───────────────────────────────────────────────────────────────
-
-    async def _get_log_items(self, db: AsyncSession, summit_day_id) -> List[LogItem]:
+    async def get_recent_work_plans(self, db: AsyncSession, username: str, limit: int = 20) -> List[dict]:
         stmt = (
-            select(LogItem)
-            .where(LogItem.summit_day_id == summit_day_id)
-            .order_by(LogItem.item_time.asc().nulls_last(), LogItem.id.asc())
+            select(Item, Day.date)
+            .join(Day, Item.dayidno == Day.idno)
+            .where(Item.logcrew == "WP", or_(Item.contact1 == username, Item.assigned1 == username))
+            .order_by(Day.date.desc(), Item.itemtime.desc())
+            .limit(limit)
         )
-        return list((await db.execute(stmt)).scalars().all())
+        rows = (await db.execute(stmt)).all()
+        codes_map = await self._req_codes_batch(db, [item.idno for item, _ in rows])
+        return [
+            {"wp": mapper.work_plan_to_api(item, codes_map.get(item.idno, [])), "log_date": log_date}
+            for item, log_date in rows
+        ]
 
-    async def get_log_item(self, db: AsyncSession, item_id: UUID) -> LogItem:
-        row = (await db.execute(select(LogItem).where(LogItem.id == item_id))).scalar_one_or_none()
-        if not row:
+    async def copy_work_plan(self, db: AsyncSession, plan_id: int, target_date: date, username: str) -> dict:
+        source = await self.get_work_plan(db, plan_id)
+        src_item = (await db.execute(select(Item).where(Item.idno == plan_id))).scalar_one()
+        day = await self._get_day_row(db, target_date)
+        new_item = Item(
+            dayidno=day.idno, date=target_date, day=day.day, logcrew="WP", status="Planned",
+            timestamp=datetime.now(),
+        )
+        self._apply_wp(new_item, source)
+        new_item.realstart = None
+        new_item.realend = None
+        new_item.status = "Planned"
+        new_item.contact1 = username or new_item.contact1
+        db.add(new_item)
+        await db.flush()
+        codes = await self._req_codes_for_wp(db, plan_id)
+        await self._set_req_codes(db, new_item.idno, source.get("req_flags"), source.get("lockout_flags"))
+        await db.commit()
+        await db.refresh(new_item)
+        return mapper.work_plan_to_api(new_item, codes)
+
+    # ── Log items ───────────────────────────────────────────────────────────────
+
+    async def get_log_item(self, db: AsyncSession, item_id: int) -> dict:
+        row = (await db.execute(select(Item).where(Item.idno == item_id))).scalar_one_or_none()
+        if not row or mapper.is_work_plan(row):
             raise HTTPException(status_code=404, detail="Log item not found")
-        return row
+        return mapper.log_item_to_api(row)
 
-    async def create_log_item(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> LogItem:
-        day = await self._get_day_header(db, log_date)
+    async def create_log_item(self, db: AsyncSession, log_date: date, data: dict[str, Any]) -> dict:
+        day = await self._get_day_row(db, log_date)
         wp_id = data.get("work_plan_id")
         if wp_id is not None:
-            if not (await db.execute(select(WorkPlan).where(WorkPlan.id == wp_id, WorkPlan.summit_day_id == day.id))).scalar_one_or_none():
-                raise HTTPException(status_code=400, detail="work_plan_id must reference a work plan for this summit day")
-
-        now = datetime.now(timezone.utc)
-        item = LogItem(
-            id=uuid.uuid4(),
-            summit_day_id=day.id,
-            work_plan_id=wp_id,
-            legacy_item_id=None,
-            legacy_old_item_id=None,
-            crew_tab=data.get("crew_tab", "ALL"),
-            item_time=data.get("item_time"),
-            title=_strip_nul(data.get("title")),
-            body=_strip_nul(data.get("body")),
-            item_type=data.get("item_type"),
-            downtime_minutes=data.get("downtime_minutes"),
+            wp = (await db.execute(select(Item).where(Item.idno == wp_id, Item.dayidno == day.idno, Item.logcrew == "WP"))).scalar_one_or_none()
+            if not wp:
+                raise HTTPException(status_code=400, detail="work_plan_id must reference a work plan for this day")
+        now = datetime.now()
+        item = Item(
+            dayidno=day.idno, date=log_date, day=day.day,
+            logcrew=data.get("crew_tab", "ALL"),
+            itemtime=data.get("item_time"),
+            itemtitle=_strip_nul(data.get("title")),
+            itemtext=_strip_nul(data.get("body")),
+            type=data.get("item_type"),
+            downtime=data.get("downtime_minutes"),
             subsystem=data.get("subsystem"),
             status=data.get("status"),
-            created_by=data.get("created_by"),
-            history_text=_strip_nul(data.get("history_text")),
-            comment_text=_strip_nul(data.get("comment_text")),
-            summit_access=_strip_nul(data.get("summit_access")),
-            created_at=now,
-            updated_at=now,
+            user=data.get("created_by"),
+            history=_strip_nul(data.get("history_text")),
+            comment=_strip_nul(data.get("comment_text")),
+            residno=wp_id,
+            timestamp=now,
+            updatestamp=now,
         )
         db.add(item)
         await db.commit()
         await db.refresh(item)
-        return item
+        return mapper.log_item_to_api(item)
 
-    async def update_log_item(
-        self, db: AsyncSession, item_id: UUID, data: dict[str, Any], username: str = "system"
-    ) -> LogItem:
-        item = await self.get_log_item(db, item_id)
+    async def update_log_item(self, db: AsyncSession, item_id: int, data: dict[str, Any], username: str = "system") -> dict:
+        item = (await db.execute(select(Item).where(Item.idno == item_id))).scalar_one_or_none()
+        if not item or mapper.is_work_plan(item):
+            raise HTTPException(status_code=404, detail="Log item not found")
         if "work_plan_id" in data:
             wp_id = data["work_plan_id"]
-            if wp_id is None:
-                item.work_plan_id = None
-            else:
-                if not (await db.execute(select(WorkPlan).where(WorkPlan.id == wp_id, WorkPlan.summit_day_id == item.summit_day_id))).scalar_one_or_none():
-                    raise HTTPException(status_code=400, detail="work_plan_id must reference a work plan for this summit day")
-                item.work_plan_id = wp_id
+            item.residno = wp_id
         if "crew_tab" in data and data["crew_tab"] is not None:
-            item.crew_tab = data["crew_tab"]
-        for field in ("item_time", "item_type", "downtime_minutes", "subsystem", "status", "created_by"):
-            if field in data:
-                setattr(item, field, data[field])
-        for field in ("title", "body", "comment_text"):
-            if field in data:
-                setattr(item, field, _strip_nul(data[field]))
-        # history_text: auto-append an audit line when title/body change; only
-        # overwrite if the caller explicitly provides a non-None value.
+            item.logcrew = data["crew_tab"]
+        if "item_time" in data:
+            item.itemtime = data["item_time"]
+        if "item_type" in data:
+            item.type = data["item_type"]
+        if "downtime_minutes" in data:
+            item.downtime = data["downtime_minutes"]
+        if "subsystem" in data:
+            item.subsystem = data["subsystem"]
+        if "status" in data:
+            item.status = data["status"]
+        if "created_by" in data:
+            item.user = data["created_by"]
+        if "title" in data:
+            item.itemtitle = _strip_nul(data["title"])
+        if "body" in data:
+            item.itemtext = _strip_nul(data["body"])
+        if "comment_text" in data:
+            item.comment = _strip_nul(data["comment_text"])
         if "history_text" in data and data["history_text"] is not None:
-            item.history_text = _strip_nul(data["history_text"])
+            item.history = _strip_nul(data["history_text"])
         elif "title" in data or "body" in data:
             now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            title_preview = (data.get("title") or item.title or "")[:80]
+            title_preview = (data.get("title") or item.itemtitle or "")[:80]
             new_line = f"[{now_str}] ({username}): {title_preview}"
-            existing = (item.history_text or "").rstrip()
-            item.history_text = f"{existing}\n{new_line}".strip()
-        if "summit_access" in data:
-            item.summit_access = _strip_nul(data["summit_access"])
-        item.updated_at = datetime.now(timezone.utc)
+            existing = (item.history or "").rstrip()
+            item.history = f"{existing}\n{new_line}".strip()
+        item.updatestamp = datetime.now()
         await db.commit()
         await db.refresh(item)
-        return item
+        return mapper.log_item_to_api(item)
 
-    async def delete_log_item(self, db: AsyncSession, item_id: UUID) -> None:
+    async def delete_log_item(self, db: AsyncSession, item_id: int) -> None:
         await self.get_log_item(db, item_id)
-        await db.execute(delete(LogItem).where(LogItem.id == item_id))
+        await db.execute(delete(Item).where(Item.idno == item_id))
         await db.commit()
 
-    # ── Copy Work Plan ───────────────────────────────────────────────────────────
+    # ── Email ───────────────────────────────────────────────────────────────────
 
-    async def get_recent_work_plans(
-        self, db: AsyncSession, username: str, limit: int = 20
-    ) -> List[dict]:
-        """Return the most recent work plans associated with a user (requestor or assigned1)."""
-        stmt = (
-            select(WorkPlan, SummitDay.log_date)
-            .join(SummitDay, WorkPlan.summit_day_id == SummitDay.id)
-            .where(
-                or_(WorkPlan.requestor == username, WorkPlan.assigned1 == username)
-            )
-            .order_by(SummitDay.log_date.desc(), WorkPlan.window_start.desc().nulls_last())
-            .limit(limit)
-        )
-        rows = (await db.execute(stmt)).all()
-        return [{"wp": wp, "log_date": log_date} for wp, log_date in rows]
-
-    async def copy_work_plan(
-        self, db: AsyncSession, plan_id: UUID, target_date: date, username: str
-    ) -> WorkPlan:
-        """Duplicate a work plan onto a different log date (clears completion fields)."""
-        source = await self.get_work_plan(db, plan_id)
-        day = await self._get_day_header(db, target_date)
-        new_wp = WorkPlan(id=uuid.uuid4(), summit_day_id=day.id)
-        # Copy all data fields
-        for field in self._WP_STR_FIELDS:
-            setattr(new_wp, field, getattr(source, field, None))
-        for field in ("master", "seats", "seats2", "pseats"):
-            setattr(new_wp, field, getattr(source, field, None))
-        new_wp.plan_text = source.plan_text
-        new_wp.wp_type = source.wp_type
-        new_wp.wp_subsystem = source.wp_subsystem
-        new_wp.day_warning = source.day_warning
-        new_wp.nite_warning = source.nite_warning
-        new_wp.teampass = source.teampass
-        new_wp.req_flags = source.req_flags
-        new_wp.lockout_flags = source.lockout_flags
-        new_wp.requestor = username or source.requestor
-        new_wp.comptitle = source.comptitle
-        # Reset timing and completion
-        new_wp.window_start = source.window_start
-        new_wp.window_end = source.window_end
-        new_wp.wp_status = "Planned"
-        new_wp.realstart = None
-        new_wp.realend = None
-        new_wp.comptext = None
-        new_wp.completion_title = None
-        db.add(new_wp)
-        await db.commit()
-        await db.refresh(new_wp)
-        return new_wp
-
-    # ── Email Delivery ──────────────────────────────────────────────────────────
-
-    async def _get_email_delivery(self, db: AsyncSession, summit_day_id) -> Optional[EmailDelivery]:
-        return (await db.execute(select(EmailDelivery).where(EmailDelivery.summit_day_id == summit_day_id))).scalar_one_or_none()
-
-    # ── Send Email ───────────────────────────────────────────────────────────────
-
-    def _build_email_body(self, log_date: date, day_data: dict, email_type: str) -> str:
-        """Compose a plain-text email body from a daily view payload dict."""
-        lines: list[str] = []
-        date_str = log_date.strftime("%Y-%m-%d")
-        lines.append(f"Subaru SciOps Night Log — {date_str}")
-        lines.append("=" * 50)
-
-        # ── Crew
-        lines.append("\n=== CREW ===")
-        for c in day_data.get("crew_assignments", []):
-            name = c.get("member_name") or "—"
-            role = c.get("role") or "?"
-            loc = c.get("location") or ""
-            tin = (c.get("time_in") or "")[:16]
-            tout = (c.get("time_out") or "")[:16]
-            lines.append(f"  {role}: {name}  {f'@ {loc}' if loc else ''}  {tin} – {tout}")
-
-        # ── Weather
-        w = day_data.get("weather")
-        if w:
-            lines.append("\n=== WEATHER ===")
-            parts = []
-            if w.get("sky"):       parts.append(f"Sky: {w['sky']}")
-            if w.get("seeing"):    parts.append(f"Seeing: {w['seeing']}")
-            if w.get("temp_raw"):  parts.append(f"Temp: {w['temp_raw']}")
-            if w.get("wind"):      parts.append(f"Wind: {w['wind']}")
-            if w.get("humidity_raw"): parts.append(f"Humidity: {w['humidity_raw']}")
-            lines.append("  " + " | ".join(parts))
-            if w.get("comment_text"):
-                lines.append(f"  Note: {w['comment_text']}")
-
-        # ── Programs
-        progs = day_data.get("programs", [])
-        if progs:
-            lines.append("\n=== PROGRAMS ===")
-            for i, p in enumerate(progs, 1):
-                instr = p.get("instr") or "?"
-                alloc = p.get("alloc") or ""
-                pi = p.get("pi") or ""
-                gid = p.get("gid") or ""
-                propid = p.get("propid") or ""
-                s = f"  {i}. {instr}"
-                if alloc: s += f" [{alloc}]"
-                if pi:    s += f"  PI: {pi}"
-                if gid:   s += f"  GID: {gid}"
-                if propid: s += f"  PropID: {propid}"
-                lines.append(s)
-                t_start = (p.get("slot_start") or "")[:16]
-                t_end   = (p.get("slot_end") or "")[:16]
-                if t_start or t_end:
-                    lines.append(f"       Time: {t_start} – {t_end}")
-
-        # ── Work Plans (DC email)
-        if email_type == "dc":
-            wps = day_data.get("work_plans", [])
-            if wps:
-                lines.append("\n=== WORK PLANS ===")
-                for wp in wps:
-                    title = wp.get("comptitle") or wp.get("plan_text") or "—"
-                    status = wp.get("wp_status") or ""
-                    req = wp.get("requestor") or ""
-                    lines.append(f"  [{status}] {title}  (req: {req})")
-
-        # ── Log Items
-        items = day_data.get("log_items", [])
-        if items:
-            lines.append("\n=== LOG ENTRIES ===")
-            for item in items:
-                tab   = item.get("crew_tab") or "?"
-                itime = (item.get("item_time") or "")[:16]
-                itype = item.get("item_type") or ""
-                title = item.get("title") or ""
-                body  = item.get("body") or ""
-                dt    = item.get("downtime_minutes")
-                status = item.get("status") or ""
-                hdr = f"  [{tab}] {itime}  {itype}  {status}"
-                if dt:
-                    hdr += f"  ⏱ {dt}min downtime"
-                lines.append(hdr)
-                if title: lines.append(f"    {title}")
-                if body:
-                    for bline in body.split("\n")[:5]:
-                        lines.append(f"      {bline}")
-
-        lines.append("\n— Sent from OPAL (Subaru Telescope Operations) —")
-        return "\n".join(lines)
-
-    async def send_summit_email(
-        self, db: AsyncSession, log_date: date, email_type: str, username: str
-    ) -> dict:
-        """Compose and send a night-log / DC / SMOKA email, then update EmailDelivery."""
+    async def send_summit_email(self, db: AsyncSession, log_date: date, email_type: str, username: str) -> dict:
         from app.core.config import settings
 
-        # Fetch day view as plain dicts
         payload = await self.get_daily_view(db=db, log_date=log_date)
-        day_obj = payload["day"]
-
-        def _as_dict(obj) -> dict:
-            if obj is None:
-                return {}
-            if isinstance(obj, dict):
-                return obj
-            return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-
-        def _list_dicts(lst) -> list:
-            return [_as_dict(x) for x in (lst or [])]
-
         day_data = {
-            "crew_assignments": _list_dicts(payload.get("crew")),
-            "weather":   _as_dict(payload.get("weather")),
-            "programs":  _list_dicts(payload.get("programs")),
-            "work_plans": _list_dicts(payload.get("work_plans")),
-            "log_items": _list_dicts(payload.get("log_items")),
+            "crew_assignments": payload.get("crew") or [],
+            "weather": payload.get("weather"),
+            "programs": payload.get("programs") or [],
+            "work_plans": payload.get("work_plans") or [],
+            "log_items": payload.get("log_items") or [],
         }
-
         body_text = self._build_email_body(log_date, day_data, email_type)
         date_str = log_date.strftime("%Y-%m-%d")
 
@@ -690,7 +547,7 @@ class SummitService:
         elif email_type == "dc":
             subject = f"SciOps Day Crew Log — {date_str} (from OPAL)"
             raw_recipients = settings.email_dc_recipients
-        else:  # "to" / default
+        else:
             subject = f"SciOps Night Log — {date_str} (from OPAL)"
             raw_recipients = settings.email_summitlog_recipients
 
@@ -702,49 +559,56 @@ class SummitService:
         msg["From"] = settings.email_sender
         msg["To"] = ", ".join(recipients)
         msg["Subject"] = subject
-        msg["Reply-To"] = settings.email_sender
-
-        raw_msg = msg.as_string()
-        sender = settings.email_sender
-        host = settings.smtp_host
-        port = settings.smtp_port
 
         def _send_blocking() -> Optional[str]:
             try:
-                with smtplib.SMTP(host, port, timeout=15) as server:
-                    server.sendmail(sender, recipients, raw_msg)
+                with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as server:
+                    server.sendmail(settings.email_sender, recipients, msg.as_string())
                 return None
             except Exception as exc:
                 return str(exc)
 
-        last_error: Optional[str] = await asyncio.get_event_loop().run_in_executor(
-            None, _send_blocking
-        )
-
-        # Update EmailDelivery record
-        now = datetime.now(timezone.utc)
-        delivery = await self._get_email_delivery(db, day_obj.id)
-        if delivery is None:
-            delivery = EmailDelivery(id=uuid.uuid4(), summit_day_id=day_obj.id)
-            db.add(delivery)
-        delivery.last_error = last_error
+        last_error = await asyncio.get_event_loop().run_in_executor(None, _send_blocking)
+        day = await self._get_day_row(db, log_date)
+        now = datetime.now()
         if last_error is None:
             if email_type == "smoka":
-                delivery.mailsmoka = "Y"
-                delivery.smokatime = now
+                day.mailsmoka = "Y"
+                day.smokatime = now
             elif email_type == "dc":
-                delivery.mailday = "Y"
-                delivery.maildtime = now
-                delivery.day_digest_sent_at = now
+                day.mailday = "Y"
+                day.maildtime = now
             else:
-                delivery.mailed = "Y"
-                delivery.mailtime = now
+                day.mailed = "Y"
+                day.mailtime = now
         await db.commit()
-
         if last_error:
             raise HTTPException(status_code=502, detail=f"SMTP error: {last_error}")
-
         return {"message": f"Email sent to {', '.join(recipients)}", "recipients": recipients}
+
+    def _build_email_body(self, log_date: date, day_data: dict, email_type: str) -> str:
+        lines = [f"Subaru SciOps Night Log — {log_date.strftime('%Y-%m-%d')}", "=" * 50]
+        lines.append("\n=== CREW ===")
+        for c in day_data.get("crew_assignments", []):
+            lines.append(f"  {c.get('role')}: {c.get('member_name')}")
+        w = day_data.get("weather")
+        if w:
+            lines.append("\n=== WEATHER ===")
+            lines.append(f"  Sky: {w.get('sky')} | Temp: {w.get('temp_raw')}")
+        if day_data.get("programs"):
+            lines.append("\n=== PROGRAMS ===")
+            for p in day_data["programs"]:
+                lines.append(f"  {p.get('instr')} [{p.get('alloc')}]")
+        if email_type == "dc" and day_data.get("work_plans"):
+            lines.append("\n=== WORK PLANS ===")
+            for wp in day_data["work_plans"]:
+                lines.append(f"  {wp.get('comptitle') or wp.get('plan_text')}")
+        if day_data.get("log_items"):
+            lines.append("\n=== LOG ENTRIES ===")
+            for item in day_data["log_items"]:
+                lines.append(f"  [{item.get('crew_tab')}] {item.get('title')}")
+        lines.append("\n— Sent from OPAL —")
+        return "\n".join(lines)
 
     # ── Search ──────────────────────────────────────────────────────────────────
 
@@ -759,55 +623,58 @@ class SummitService:
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[dict], int]:
+        from sqlalchemy import text as sql_text
         qt = q.strip()
         if not qt:
             raise HTTPException(status_code=400, detail="Query q must not be empty")
 
-        join_cond = LogItem.summit_day_id == SummitDay.id
-        esc = qt.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pat = f"%{esc}%"
-        text_match = or_(
-            LogItem.title.ilike(pat, escape="\\"),
-            LogItem.body.ilike(pat, escape="\\"),
-        )
-        fts_safe = re.sub(r"[^\w\s]", " ", qt, flags=re.UNICODE)
-        fts_safe = " ".join(fts_safe.split())[:500]
-        if fts_safe:
-            vec = func.to_tsvector(
-                "english",
-                func.concat_ws(" ", func.coalesce(LogItem.title, ""), func.coalesce(LogItem.body, "")),
-            )
-            fts_q = func.plainto_tsquery("english", fts_safe)
-            keyword_clause = or_(text_match, vec.op("@@")(fts_q))
+        # Use FULLTEXT index (MATCH AGAINST) when available — falls back to LIKE for
+        # short single-char queries that FULLTEXT doesn't support.
+        use_fulltext = len(qt) >= 3 and not any(c in qt for c in "%_\\")
+
+        date_clause = ""
+        params: dict = {"qt": qt, "limit": limit, "offset": offset}
+        if from_date:
+            date_clause += " AND i.date >= :from_date"
+            params["from_date"] = from_date
+        if to_date:
+            date_clause += " AND i.date <= :to_date"
+            params["to_date"] = to_date
+        crew_clause = ""
+        if crew_tab:
+            crew_clause = " AND i.logcrew = :crew_tab"
+            params["crew_tab"] = crew_tab.strip().upper()
+
+        if use_fulltext:
+            # Boolean mode: wrap multi-word queries so each word is required (+word)
+            words = qt.split()
+            ft_query = " ".join(f"+{w}*" for w in words if len(w) >= 3) or qt
+            params["ft_query"] = ft_query
+            text_filter = "MATCH(i.itemtitle, i.itemtext) AGAINST (:ft_query IN BOOLEAN MODE)"
         else:
-            keyword_clause = text_match
+            esc = qt.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            params["pat"] = f"%{esc}%"
+            text_filter = "(i.itemtitle LIKE :pat OR i.itemtext LIKE :pat)"
 
-        filters: list = [keyword_clause]
-        if from_date is not None:
-            filters.append(SummitDay.log_date >= from_date)
-        if to_date is not None:
-            filters.append(SummitDay.log_date <= to_date)
-        if crew_tab is not None:
-            filters.append(LogItem.crew_tab == crew_tab.strip().upper())
-
-        count_stmt = (
-            select(func.count())
-            .select_from(LogItem)
-            .join(SummitDay, join_cond)
-            .where(*filters)
+        count_sql = sql_text(
+            f"SELECT COUNT(*) FROM items i WHERE {text_filter}"
+            f" AND i.logcrew != 'WP'{date_clause}{crew_clause}"
         )
-        total = (await db.execute(count_stmt)).scalar_one()
-
-        stmt = (
-            select(LogItem, SummitDay.log_date)
-            .join(SummitDay, join_cond)
-            .where(*filters)
-            .order_by(SummitDay.log_date.desc(), LogItem.item_time.desc().nulls_last(), LogItem.id.desc())
-            .limit(limit)
-            .offset(offset)
+        rows_sql = sql_text(
+            f"SELECT i.idno FROM items i WHERE {text_filter}"
+            f" AND i.logcrew != 'WP'{date_clause}{crew_clause}"
+            f" ORDER BY i.date DESC, i.itemtime DESC, i.idno DESC"
+            f" LIMIT :limit OFFSET :offset"
         )
-        rows = (await db.execute(stmt)).all()
-        result = []
-        for item, log_date in rows:
-            result.append({"item": item, "log_date": log_date})
-        return result, int(total)
+
+        total = (await db.execute(count_sql, params)).scalar_one()
+        id_rows = (await db.execute(rows_sql, params)).fetchall()
+        if not id_rows:
+            return [], int(total)
+
+        item_ids = [r[0] for r in id_rows]
+        items = (await db.execute(
+            select(Item).where(Item.idno.in_(item_ids))
+            .order_by(Item.date.desc(), Item.itemtime.desc(), Item.idno.desc())
+        )).scalars().all()
+        return [{"item": mapper.log_item_to_api(item), "log_date": item.date} for item in items], int(total)

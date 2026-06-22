@@ -92,7 +92,7 @@ class TestHealth:
         r = AUTH.get(f"{BASE}/health")
         d = _ok(r)
         assert d["status"] == "healthy"
-        assert d["database"] == "postgres"
+        assert d["database"] == "mariadb"
 
 
 # =============================================================================
@@ -431,6 +431,7 @@ class TestCrew:
     def test_patch(self):
         assert TestCrew._crew_id
         r = AUTH.patch(f"{BASE}/crew/{TestCrew._crew_id}",
+                       params={"log_date": _CREATE_DATE},
                        json={"member_name": "E2E Operator Updated"})
         d = _ok(r)
         assert d["member_name"] == "E2E Operator Updated"
@@ -443,7 +444,7 @@ class TestCrew:
 
     def test_delete(self):
         assert TestCrew._crew_id
-        r = AUTH.delete(f"{BASE}/crew/{TestCrew._crew_id}")
+        r = AUTH.delete(f"{BASE}/crew/{TestCrew._crew_id}", params={"log_date": _CREATE_DATE})
         assert r.status_code == 204
 
 

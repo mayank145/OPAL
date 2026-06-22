@@ -225,7 +225,7 @@ export const referenceAPI = {
   },
 };
 
-// Summit Logging API (Postgres-backed) — full CRUD
+// Summit Logging API (legacy MariaDB sumlogs) — full CRUD
 export const summitAPI = {
   health: () => api.get('/api/v1/summit/health').then((r) => r.data),
 
@@ -243,9 +243,10 @@ export const summitAPI = {
   // Crew assignments
   createCrew: (logDate, payload) =>
     api.post(`/api/v1/summit/day/${logDate}/crew`, payload).then((r) => r.data),
-  updateCrew: (crewId, payload) =>
-    api.patch(`/api/v1/summit/crew/${crewId}`, payload).then((r) => r.data),
-  deleteCrew: (crewId) => api.delete(`/api/v1/summit/crew/${crewId}`),
+  updateCrew: (crewId, logDate, payload) =>
+    api.patch(`/api/v1/summit/crew/${crewId}`, payload, { params: { log_date: logDate } }).then((r) => r.data),
+  deleteCrew: (crewId, logDate) =>
+    api.delete(`/api/v1/summit/crew/${crewId}`, { params: { log_date: logDate } }),
 
   // Weather
   upsertWeather: (logDate, payload) =>
@@ -257,6 +258,12 @@ export const summitAPI = {
   updateProgram: (programId, payload) =>
     api.patch(`/api/v1/summit/programs/${programId}`, payload).then((r) => r.data),
   deleteProgram: (programId) => api.delete(`/api/v1/summit/programs/${programId}`),
+  searchProgramGids: (q) =>
+    api.get('/api/v1/summit/programs/gids', { params: { q } }).then((r) => r.data),
+  lookupProgram: (gid) =>
+    api.get('/api/v1/summit/programs/lookup', { params: { gid } }).then((r) => r.data),
+  getOpalPrograms: (logDate) =>
+    api.get(`/api/v1/summit/day/${logDate}/opal-programs`).then((r) => r.data),
 
   // Work plans
   createWorkPlan: (logDate, payload) =>
@@ -272,6 +279,8 @@ export const summitAPI = {
   // Email
   sendEmail: (logDate, emailType) =>
     api.post(`/api/v1/summit/day/${logDate}/email/send`, { email_type: emailType }).then((r) => r.data),
+  previewEmail: (logDate, emailType) =>
+    api.get(`/api/v1/summit/day/${logDate}/email/preview`, { params: { email_type: emailType } }).then((r) => r.data),
 
   // Log items
   createLogItem: (logDate, payload) =>
